@@ -30,29 +30,41 @@ feature; it's the demonstration that makes the rest of the protocol credible.
 
 ## Architecture at a glance
 
-```
-                         ┌──────────────────────────────────────────┐
-   agent's own wallet    │  On-chain (EVM / Base Sepolia + anvil)    │
-   signs these deploys ──┼─▶ SovereignAgent   (identity account)     │
-                         │   StateAnchor      (per-agent audit root) │
-   AgentPrimitivesFactory │                                          │
-   clones these ─────────┼─▶ ReputationRegistry ┐                    │
-   (EIP-1167 minimal      │   Slasher            │  5 clones, each   │
-    proxies)              │   VerifierRegistry   │  uniquely owned   │
-                          │   ComplianceGate     │  by the agent     │
-                          │   AgentProfile       ┘                    │
-                         └───────────▲───────────────────▲──────────┘
-                                     │                    │
-   integrity-sdk / integrity-cli ────┘                    │ resolve + score
-   (self-deploy registration,                             │
-    BCC commitments, telemetry)                    integrity-oracle (Rust/Axum)
-              │                                     (AIS scoring, telemetry
-              │ pre-execution gate                  ingest, on-chain reads)
-              ▼                                            ▲
-      bcc_middleware (FastAPI + OPA) ──── telemetry ───────┘
-      (policy, HIPAA BAA check,             integrity-mvp (React + Python)
-       ZK, Merkle anchoring)                (the one dashboard/landing app +
-                                              its demo scenario engine)
+```mermaid
+flowchart TB
+    Wallet["Agent's own wallet"]
+    Factory["AgentPrimitivesFactory"]
+
+    subgraph OnChain["On-chain (EVM / Base Sepolia + anvil)"]
+        SA["SovereignAgent<br/>(identity account)"]
+        StA["StateAnchor<br/>(per-agent audit root)"]
+        subgraph Clones["5 EIP-1167 minimal-proxy clones<br/>each uniquely owned by the agent"]
+            RR["ReputationRegistry"]
+            SL["Slasher"]
+            VR["VerifierRegistry"]
+            CG["ComplianceGate"]
+            AP["AgentProfile"]
+        end
+    end
+
+    SDK["integrity-sdk / integrity-cli<br/>(self-deploy registration,<br/>BCC commitments, telemetry)"]
+    BCC["bcc_middleware (FastAPI + OPA)<br/>(policy, HIPAA BAA check,<br/>ZK, Merkle anchoring)"]
+    Oracle["integrity-oracle (Rust/Axum)<br/>(AIS scoring, telemetry ingest,<br/>on-chain reads)"]
+    MVP["integrity-mvp (React + Python)<br/>(the one dashboard/landing app +<br/>its demo scenario engine)"]
+
+    Wallet -->|signs direct deploys| SA
+    Wallet -->|signs direct deploys| StA
+    Factory -->|clones| RR
+    Factory -->|clones| SL
+    Factory -->|clones| VR
+    Factory -->|clones| CG
+    Factory -->|clones| AP
+
+    SDK --> Wallet
+    SDK -->|pre-execution gate| BCC
+    BCC -->|telemetry| Oracle
+    Oracle -->|resolve + score| OnChain
+    Oracle --> MVP
 ```
 
 `bcc_middleware` and `integrity-oracle` together form one trust domain — the
@@ -114,8 +126,20 @@ AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · 
 Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (sum to 1.0); `ZK_boost`
 is `1.15` when a real Barretenberg proof was verified for the reporting period,
 else `1.0`. The four component scores come from an agent's telemetry — the SDK
-derives first-pass signals from OpenTelemetry/MLflow spans; the oracle owns the
-final formula. See [`docs/wiki/concepts/ais.md`](docs/wiki/concepts/ais.md).
+derives first-pass signals from OpenTelemetry/MLflow spans, but the **oracle
+independently recomputes entropy/grounding/sacrifice/compliance server-side**
+from the same signed telemetry rather than trusting the client's numbers (see
+`integrity-oracle/backend/src/derive.rs`) — the SDK's values are advisory/audit
+trail only. See [`docs/wiki/concepts/ais.md`](docs/wiki/concepts/ais.md).
+
+```mermaid
+flowchart LR
+    Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
+    Oracle -->|"re-derive from otel_spans<br/>(same posture as PHI backstop)"| Recompute["entropy / grounding /<br/>sacrifice / compliance<br/>(oracle-computed, authoritative)"]
+    Recompute --> Formula["AIS = ΣS·w · ZK_boost<br/>(scoring-core, sole formula owner)"]
+    ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
+    Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push"]
+```
 
 ---
 

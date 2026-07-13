@@ -4,9 +4,10 @@ import { HeroSection } from '../components/landing/HeroSection';
 import { CinematicFooter } from '../components/landing/CinematicFooter';
 import { RegistryExplorer } from '../components/ui/RegistryExplorer';
 import { ContactModal } from '../components/ui/ContactModal';
+import { MermaidDiagram } from '../components/ui/MermaidDiagram';
 import { ShieldCheck, ChevronDown, CheckCircle, Activity, Lock, Send, Loader2 } from 'lucide-react';
 import 'katex/dist/katex.min.css';
-import katex from 'katex';
+import { BlockMath } from 'react-katex';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const LandingPage = () => {
@@ -63,9 +64,31 @@ export const LandingPage = () => {
     ];
 
     // LaTeX formulas for Tri-Metrics
-    const aisFormula = "$$ \\Delta_{AIS} = 1 - \\left( \\sum_{i=1}^{4} w_i S_i \\right) \\times ZK_{boost} $$";
-    const bccFormula = "$$ \\rho_{BCC} = \\frac{N_{blocked}}{N_{total}} \\times 100 $$";
-    const exposureFormula = "$$ E_{risk} = \\int_{0}^{t} P(leak) \\cdot C_{staked} \\, dt $$";
+    const aisFormula = "\\Delta_{AIS} = 1 - \\left( \\sum_{i=1}^{4} w_i S_i \\right) \\times ZK_{boost}";
+    const bccFormula = "\\rho_{BCC} = \\frac{N_{blocked}}{N_{total}} \\times 100";
+    const exposureFormula = "E_{risk} = \\int_{0}^{t} P(leak) \\cdot C_{staked} \\, dt";
+
+    const validationLifecycleChart = `
+sequenceDiagram
+    participant Agent as Autonomous Agent
+    participant SDK as Integrity SDK
+    participant BCC as BCC Middleware
+    participant Chain as On-chain
+
+    Agent->>SDK: Propose transaction
+    SDK->>SDK: Hash intent (SHA-256)<br/>Sign with DID key<br/>60s TTL commitment
+    SDK->>BCC: Signed commitment
+    BCC->>BCC: TTL check
+    BCC->>BCC: AIS threshold check
+    BCC->>BCC: Intent hash match
+    BCC->>BCC: OPA policy evaluation
+    alt any gate fails
+        BCC-->>Agent: Blocked (logged, no exceptions)
+    else all gates pass
+        BCC->>Chain: Execute
+        Chain-->>Agent: State change confirmed
+    end
+`;
 
     return (
         <div style={{ background: 'var(--navy-deep)', color: 'white', minHeight: '100vh', overflowX: 'hidden' }}>
@@ -139,7 +162,7 @@ export const LandingPage = () => {
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Agent Integrity Deficit</h3>
                             </div>
                             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '8px', overflowX: 'auto', fontSize: '1.1rem', color: 'var(--primary)' }}>
-                                <div dangerouslySetInnerHTML={{ __html: katex.renderToString(aisFormula, { throwOnError: false, displayMode: true }) }} />
+                                <BlockMath math={aisFormula} />
                             </div>
                         </div>
 
@@ -149,7 +172,7 @@ export const LandingPage = () => {
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Intent Violation Rate</h3>
                             </div>
                             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '8px', overflowX: 'auto', fontSize: '1.1rem', color: 'var(--danger)' }}>
-                                <div dangerouslySetInnerHTML={{ __html: katex.renderToString(bccFormula, { throwOnError: false, displayMode: true }) }} />
+                                <BlockMath math={bccFormula} />
                             </div>
                         </div>
 
@@ -159,7 +182,7 @@ export const LandingPage = () => {
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Collateral Exposure</h3>
                             </div>
                             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '8px', overflowX: 'auto', fontSize: '1.1rem', color: 'var(--primary)' }}>
-                                <div dangerouslySetInnerHTML={{ __html: katex.renderToString(exposureFormula, { throwOnError: false, displayMode: true }) }} />
+                                <BlockMath math={exposureFormula} />
                             </div>
                         </div>
                     </div>
@@ -188,6 +211,9 @@ export const LandingPage = () => {
                                     <p style={{ color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>The Behavioral Commitment Chain (BCC) middleware intercepts the request. It runs a validation sequence in order: TTL Check, AIS Threshold Check, Intent Hash Match, and OPA Policy Evaluation. If any gate fails, the transaction is killed and the failure is logged. No exceptions.</p>
                                 </div>
                             </div>
+                        </div>
+                        <div style={{ marginTop: '40px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '24px' }}>
+                            <MermaidDiagram chart={validationLifecycleChart} />
                         </div>
                     </div>
                 </section>
