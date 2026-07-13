@@ -1,0 +1,169 @@
+name: CI
+
+# Mirrors the root Makefile's `test` target, split into one job per package so a
+# failure in one toolchain doesn't hide results from the others (see Makefile / README
+# "Local development"). `test-e2e` (Playwright, needs a full booted stack) and `demo`
+# (live Base Sepolia) are deliberately NOT run here — see docs/TESTING.md for why they're
+# a separate, slower layer.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  FOUNDRY_VERSION: v1.7.1
+  RUST_VERSION: "1.96.0"
+  NARGO_VERSION: "1.0.0-beta.22"
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.11.x"
+
+jobs:
+  contracts:
+    name: contracts (forge test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: forge test -vvv
+        working-directory: contracts
+
+  zkp:
+    name: integrity-zkp (nargo test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Noir (nargo)
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          echo "$HOME/.nargo/bin" >> "$GITHUB_PATH"
+      - run: ~/.nargo/bin/noirup -v ${{ env.NARGO_VERSION }}
+      - run: nargo test
+        working-directory: integrity-zkp
+
+  oracle:
+    name: integrity-oracle (cargo test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: integrity-oracle
+      # Real-toolchain (ORACLE_E2E=1) tests need Postgres/Redis/anvil/forge and are NOT
+      # run here — this job runs `cargo test --workspace --lib` plus the e2e test
+      # binary's default (skip-logging) path, matching what a bare `cargo test` does
+      # without ORACLE_E2E set. See backend/tests/e2e.rs's own doc comment.
+      - run: cargo test --workspace
+        working-directory: integrity-oracle
+
+  sdk:
+    name: integrity-sdk (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync
+        working-directory: integrity-sdk
+      - run: uv run pytest
+        working-directory: integrity-sdk
+
+  cli:
+    name: integrity-cli (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync
+        working-directory: integrity-cli
+      - run: uv run pytest
+        working-directory: integrity-cli
+
+  bcc_middleware:
+    name: bcc_middleware (pytest + opa test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync
+        working-directory: bcc_middleware
+      - run: uv run pytest
+        working-directory: bcc_middleware
+      - name: Install OPA
+        run: |
+          curl -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+      - run: opa test policies/ -v
+        working-directory: bcc_middleware
+
+  userapi:
+    name: integrity-userapi (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync
+        working-directory: integrity-userapi
+      - run: uv run pytest
+        working-directory: integrity-userapi
+
+  mvp:
+    name: integrity-mvp (npm test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install
+        working-directory: integrity-mvp
+      - run: npm test
+        working-directory: integrity-mvp
+
+  # Fires only when a required job above fails on `main` (not on PRs — a PR author's own
+  # branch shouldn't get an autonomous Jules task filed against it without their say-so).
+  # See the job's own steps for what's actually wired vs. what still needs the repo
+  # owner's one-time setup at jules.google.com + a JULES_API_KEY secret.
+  notify-jules-on-failure:
+    name: Trigger Jules on main-branch failure
+    runs-on: ubuntu-latest
+    if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, mvp]
+    steps:
+      - name: Report (not yet wired to a live Jules API call)
+        run: |
+          echo "CI failed on main. Autonomous Jules triggering is not wired up yet:"
+          echo "1. Authorize Jules for this repo at https://jules.google.com (one-time, repo-owner action)."
+          echo "2. Add a JULES_API_KEY repository secret."
+          echo "3. Replace this step with the real Jules task-creation call once the"
+          echo "   jules MCP server's exact API is confirmed (it wasn't connected in the"
+          echo "   session that authored this workflow — see PRODUCTION_GAPS.md)."

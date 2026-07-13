@@ -60,3 +60,7 @@ genuinely open, not a restatement of the original three gaps.
 ## 4. BCC Middleware (`bcc_middleware`)
 *Current State:* The FastAPI middleware intercepts requests to evaluate OPA policies (`opa_client.py`). 
 * **Gap - Active Quarantine Enforcement:** The middleware currently relies on static policies. It must be updated to aggressively poll or subscribe to the Oracle's WSS feed or the blockchain's state. If an agent's `SmartBAA` is slashed on-chain, the BCC Middleware must dynamically and instantly sever that agent's egress network traffic (the "Quarantine Zone") without waiting for a static policy update.
+
+## 5. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
+*Current State:* A real CI workflow now runs every package's test suite (mirroring the root `Makefile`'s `test` target) as separate per-package jobs on push/PR to `main`.
+* **Gap - Jules Autonomous Triggering:** The `notify-jules-on-failure` job is a placeholder — it does not yet call the Jules API. Closing this requires: (1) the repo owner authorizing Jules for `XibalbaTechSol/integrity-latest` at jules.google.com, (2) a `JULES_API_KEY` repository secret, and (3) confirming the `@google/jules-mcp` MCP server's actual task-creation call shape (not yet inspected — the server wasn't connected in the session that authored this workflow; MCP servers registered mid-session require a Claude Code restart to connect) before replacing the placeholder step with a real `curl`/API call.
