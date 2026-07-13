@@ -1,0 +1,39 @@
+[project]
+name = "integrity-cli"
+version = "0.1.0"
+description = "Developer CLI for the Integrity Protocol: agent identity, governance, and Oracle/BCC middleware access"
+requires-python = ">=3.12"
+dependencies = [
+    # >=0.15 required for click >=8.2 compatibility: the web3/eth-account stack this
+    # package's on-chain register flow depends on pulls in a newer click, and typer
+    # <0.15 silently mis-parses options against click 8.2+ (options stop registering).
+    "typer>=0.15.0",
+    "rich>=13.7.0,<14.0.0",
+    "httpx>=0.27.0",
+    "cryptography>=42.0.0",
+    "python-dotenv>=1.0.0",
+    # EVM wallet + on-chain deploy/registration (wallet.py, chain.py) -- same
+    # versions integrity-sdk depends on and has proven against real
+    # contracts, kept in lockstep deliberately (see wallet.py/chain.py
+    # module docstrings for why this CLI has its own copies of the logic
+    # rather than importing integrity_sdk).
+    "eth-account>=0.13.0",
+    "web3>=7.4.0",
+    "eth-utils>=5.1.0",
+]
+
+[project.scripts]
+integrity = "integrity_cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["integrity_cli"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-httpx>=0.30.0",
+]

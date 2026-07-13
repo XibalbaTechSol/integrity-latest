@@ -1,0 +1,76 @@
+---
+title: ComplianceGate & Xibalba Shield
+created: 2026-07-07
+updated: 2026-07-09
+type: concept
+tags: [compliance, layer-2]
+confidence: high
+source_files:
+  - contracts/src/shield/ComplianceGate.sol
+  - contracts/src/shield/EHRGate.sol
+  - contracts/src/shield/SmartBAAFactory.sol
+  - contracts/src/shield/CoveredEntityRegistry.sol
+---
+
+**Xibalba Shield** is the HIPAA/healthcare vertical — the flagship proof that
+the Integrity Protocol works in the most heavily regulated industry there is. It
+is not a side feature; it is the demonstration that makes the rest of the
+protocol credible.
+
+`ComplianceGate` is the per-agent [primitive](agent-primitives.md) (an EIP-1167
+clone) that connects a single agent to that vertical.
+
+## What it does
+
+Each agent's `ComplianceGate` declares its regulated vertical
+(`None` | `Healthcare`) and exposes one live read the
+[oracle](../entities/integrity-oracle.md) and
+[dashboard](../entities/integrity-mvp.md) can call without knowing Shield's
+internals:
+
+```solidity
+function isHealthcareCompliant(address coveredEntity) external view returns (bool);
+```
+
+It **never fakes a `true`.** For a `Healthcare`-vertical agent it does a live
+read: `CoveredEntityRegistry.isActiveCoveredEntity(coveredEntity)` **and**
+`SmartBAAFactory.isBAAActive(coveredEntity, agent)`. Self-declared compliance
+flags (mirroring the SDK's `integrity.compliance.*` telemetry attributes) are
+stored separately and are *never* consulted by this live-verified boolean — a
+dishonest agent cannot self-declare its way to compliance.
+
+## The Shield stack (shared singletons)
+
+- `CoveredEntityRegistry` — registry of HIPAA covered entities and business
+  associates (admin-vetted; being listed is a claim of real legal status).
+- `SmartBAAFactory` / `SmartBAA` — one on-chain Business Associate Agreement
+  escrow per (covered entity, agent) pair; the agent posts $ITK collateral,
+  slashable to the covered entity on an arbitrated breach. See
+  [Smart BAA](smart-baa.md) for the full state machine and what the old
+  wiki overstated (no on-chain EIP-712 signing, no dispute-window timer,
+  no controller recovery — corrected there).
+- `HIPAAGuardrailRegistry` — anchors which OPA policy version governed each PHI
+  access decision.
+- `EHRGate` — the real PHI-access enforcement boundary: requires patient consent
+  **and** an active `SmartBAA` **and** a minimum [AIS](ais.md), resolving the
+  agent's own `ReputationRegistry` clone live via `XibalbaAgentRegistry`.
+
+`ComplianceGate` does **not** replace `EHRGate` as the enforcement point — it is
+the read-optimized summary surface. `EHRGate` still performs its own live checks
+at access time.
+
+## The closed loop
+
+The [BCC middleware](../entities/bcc_middleware.md) enforces the same BAA on-chain
+before an agent even acts: a clinical [BCC commitment](bcc.md) carries a signed
+`covered_entity_address`, OPA flags it `requires_baa`, and the middleware calls
+`SmartBAAFactory.isBAAActive(coveredEntity, agent)` — failing closed if it can't
+positively confirm.
+
+PHI never reaching the oracle in the first place is a separate, SDK-side
+concern from this on-chain compliance gate — see
+[Observability & PHI Safety](observability-vtl.md) for the client-side
+`Redactor` design.
+
+Related: [agent primitives](agent-primitives.md),
+[BCC](bcc.md), [Smart BAA](smart-baa.md), [contracts](../entities/contracts.md).

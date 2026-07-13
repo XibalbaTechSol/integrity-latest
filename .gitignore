@@ -1,0 +1,51 @@
+# --- secrets & local env ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+deployments.local.json
+!.env.example
+# Real, public AWS Nitro root CA cert (not a secret) — attestation.py pins its SHA-256
+# fingerprint and needs the file present to verify real Nitro attestation documents.
+!integrity-sdk/integrity_sdk/security/trust_roots/aws_nitro_root_g1.pem
+
+# --- node / dashboard ---
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.venv*/
+*venv*/
+.pytest_cache/
+*.egg-info/
+
+# --- rust ---
+target/
+Cargo.lock.bak
+
+# --- foundry ---
+contracts/out/
+contracts/cache/
+contracts/broadcast/**/run-*.json
+
+# --- noir ---
+**/target/
+Prover.toml
+Verifier.toml
+
+# --- misc ---
+.DS_Store
+*.log
+.idea/
+.vscode/
+# Personal/machine-local Claude Code settings (absolute paths, per-machine permission
+# grants) — not meant to be shared, same convention as .env.local.
+.claude/settings.local.json

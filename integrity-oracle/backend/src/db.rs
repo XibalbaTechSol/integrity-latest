@@ -1,0 +1,847 @@
+//! Postgres persistence via sqlx. Deliberately uses runtime-checked
+//! `query`/`query_as` calls rather than the `query!`/`query_as!` compile-time
+//! macros: the macros require a live, migrated database reachable at
+//! `cargo build` time (or a checked-in `.sqlx` offline query cache), which would
+//! make this crate's build depend on Postgres being up. Given this package is
+//! being built and iterated on in parallel with the rest of the monorepo (no
+//! guarantee Postgres is always running), runtime checking is the pragmatic
+//! choice — correctness is instead covered by the integration tests in
+//! `tests/`, which run the real migrations against a real Postgres.
+
+use chrono::{DateTime, Utc};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
+use uuid::Uuid;
+
+pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url)
+        .await
+}
+
+pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("./migrations").run(pool).await
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentRow {
+    pub id: String,
+    pub ed25519_pubkey: Option<Vec<u8>>,
+    pub eth_address: Option<String>,
+    pub verification_tier: i32,
+    pub last_nonce: i64,
+    pub created_at: DateTime<Utc>,
+    pub did_document: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TelemetryEventRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub nonce: i64,
+    pub leaf_hash: Vec<u8>,
+    pub merkle_root_id: Option<Uuid>,
+    pub leaf_index: Option<i32>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MerkleRootRow {
+    pub id: Uuid,
+    pub root_hash: Vec<u8>,
+    pub leaf_count: i32,
+    pub tx_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Aggregate telemetry inputs to the AIS formula, computed over the reporting
+/// window. A `None` return from `aggregate_for_ais` (rather than zeros) means
+/// "no telemetry at all in the window" — callers should treat that as a
+/// distinct case (e.g. an agent that just registered) rather than a real
+/// worst-case score.
+#[derive(Debug, Clone, Copy)]
+pub struct AisAggregate {
+    pub avg_variance: f64,
+    pub avg_hgi: f64,
+    pub sum_gpu_hours: f64,
+    pub penalty_ratio: f64,
+    pub zk_verified_this_period: bool,
+    pub event_count: i64,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterAgentError {
+    #[error("agent already registered")]
+    AlreadyExists,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+pub async fn register_agent(
+    pool: &PgPool,
+    id: &str,
+    ed25519_pubkey: Option<Vec<u8>>,
+    eth_address: Option<String>,
+    verification_tier: i32,
+    did_document: Option<serde_json::Value>,
+) -> Result<AgentRow, RegisterAgentError> {
+    let result = sqlx::query_as::<_, AgentRow>(
+        r#"
+        INSERT INTO agents (id, ed25519_pubkey, eth_address, verification_tier, did_document)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
+        "#,
+    )
+    .bind(id)
+    .bind(ed25519_pubkey)
+    .bind(eth_address)
+    .bind(verification_tier)
+    .bind(did_document)
+    .fetch_one(pool)
+    .await;
+
+    match result {
+        Ok(row) => Ok(row),
+        // Postgres unique_violation
+        Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
+            Err(RegisterAgentError::AlreadyExists)
+        }
+        Err(e) => Err(RegisterAgentError::Db(e)),
+    }
+}
+
+pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRow>(
+        r#"
+        SELECT id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
+        FROM agents WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentRow>(
+        r#"
+        SELECT id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
+        FROM agents ORDER BY created_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Cached on-chain `PrimitiveSet` (§6.1) for one agent, as last resolved from
+/// `XibalbaAgentRegistry`. Deliberately a separate table/row type from `AgentRow` (see
+/// migrations/0001_init.sql's header note) rather than extending it, since `register_agent`
+/// predates this task's primitive-resolution work and its signature/return shape is
+/// reused as-is.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentPrimitivesRow {
+    pub agent_id: String,
+    pub sovereign_agent_address: String,
+    pub state_anchor_address: String,
+    pub reputation_registry_address: String,
+    pub slasher_address: String,
+    pub verifier_registry_address: String,
+    pub compliance_gate_address: String,
+    pub agent_profile_address: String,
+    pub controller_address: String,
+    pub domain_id: String,
+    pub resolved_at: DateTime<Utc>,
+}
+
+/// Upserts the cached primitive resolution for an agent. Called after a fresh, successful
+/// on-chain `resolve_primitives` read (at registration, or on a cache-miss backfill) — this
+/// table is always safe to overwrite/rebuild from chain, since `XibalbaAgentRegistry`
+/// remains the source of truth and this row is just a read-through cache of it.
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_agent_primitives(
+    pool: &PgPool,
+    agent_id: &str,
+    sovereign_agent_address: &str,
+    state_anchor_address: &str,
+    reputation_registry_address: &str,
+    slasher_address: &str,
+    verifier_registry_address: &str,
+    compliance_gate_address: &str,
+    agent_profile_address: &str,
+    controller_address: &str,
+    domain_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO agent_primitives
+            (agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
+             slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
+             controller_address, domain_id, resolved_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+        ON CONFLICT (agent_id) DO UPDATE SET
+            sovereign_agent_address = EXCLUDED.sovereign_agent_address,
+            state_anchor_address = EXCLUDED.state_anchor_address,
+            reputation_registry_address = EXCLUDED.reputation_registry_address,
+            slasher_address = EXCLUDED.slasher_address,
+            verifier_registry_address = EXCLUDED.verifier_registry_address,
+            compliance_gate_address = EXCLUDED.compliance_gate_address,
+            agent_profile_address = EXCLUDED.agent_profile_address,
+            controller_address = EXCLUDED.controller_address,
+            domain_id = EXCLUDED.domain_id,
+            resolved_at = now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(sovereign_agent_address)
+    .bind(state_anchor_address)
+    .bind(reputation_registry_address)
+    .bind(slasher_address)
+    .bind(verifier_registry_address)
+    .bind(compliance_gate_address)
+    .bind(agent_profile_address)
+    .bind(controller_address)
+    .bind(domain_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_agent_primitives(pool: &PgPool, agent_id: &str) -> Result<Option<AgentPrimitivesRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentPrimitivesRow>(
+        r#"
+        SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
+               slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
+               controller_address, domain_id, resolved_at
+        FROM agent_primitives WHERE agent_id = $1
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_optional(pool)
+    .await
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InsertTelemetryError {
+    #[error("nonce {submitted} is not greater than last seen nonce {last_seen}")]
+    NonceReplay { submitted: i64, last_seen: i64 },
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+/// Inserts a telemetry event and advances the agent's `last_nonce`, atomically.
+/// The nonce check happens inside the same transaction as a `SELECT ... FOR
+/// UPDATE` row lock on the agent, so two concurrent submissions for the same
+/// agent can't both pass the nonce check against a stale `last_nonce` — without
+/// this, replay protection would have a TOCTOU race under concurrent requests.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_telemetry_event(
+    pool: &PgPool,
+    event_id: Uuid,
+    agent_id: &str,
+    nonce: i64,
+    performance_variance: f64,
+    hgi_raw: f64,
+    gpu_hours_verified: f64,
+    flagged: bool,
+    zk_verified: bool,
+    leaf_hash: &[u8],
+    payload: &serde_json::Value,
+) -> Result<(), InsertTelemetryError> {
+    let mut tx = pool.begin().await?;
+
+    let last_nonce: i64 = sqlx::query_scalar("SELECT last_nonce FROM agents WHERE id = $1 FOR UPDATE")
+        .bind(agent_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+    if nonce <= last_nonce {
+        return Err(InsertTelemetryError::NonceReplay {
+            submitted: nonce,
+            last_seen: last_nonce,
+        });
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO telemetry_events
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "#,
+    )
+    .bind(event_id)
+    .bind(agent_id)
+    .bind(nonce)
+    .bind(performance_variance)
+    .bind(hgi_raw)
+    .bind(gpu_hours_verified)
+    .bind(flagged)
+    .bind(zk_verified)
+    .bind(leaf_hash)
+    .bind(payload)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE agents SET last_nonce = $1 WHERE id = $2")
+        .bind(nonce)
+        .bind(agent_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn aggregate_for_ais(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<AisAggregate, sqlx::Error> {
+    let row: (f64, f64, f64, f64, bool, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            -- Each aggregate is explicitly cast to `double precision`: the `1.0`/`0.0`
+            -- literals in the CASE expression are Postgres `numeric`, so
+            -- `AVG(CASE ...)` returns `numeric`, which sqlx will NOT decode into a Rust
+            -- `f64` (it errors with "SQL type NUMERIC is not compatible"). Casting keeps
+            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, bool, i64)` row
+            -- tuple below decodes cleanly regardless of each source column's type.
+            COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
+            COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
+            COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
+            COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
+            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COUNT(*) AS event_count
+        FROM telemetry_events
+        WHERE agent_id = $1 AND created_at >= $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(AisAggregate {
+        avg_variance: row.0,
+        avg_hgi: row.1,
+        sum_gpu_hours: row.2,
+        penalty_ratio: row.3,
+        zk_verified_this_period: row.4,
+        event_count: row.5,
+    })
+}
+
+/// Telemetry events not yet folded into any anchored Merkle root, oldest first.
+/// Ordering matters: it fixes the leaf order the tree gets built with, which
+/// must be reproducible later (from `leaf_index`) to regenerate inclusion proofs.
+pub async fn fetch_pending_leaves(pool: &PgPool) -> Result<Vec<(Uuid, [u8; 32])>, sqlx::Error> {
+    let rows: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(
+        r#"
+        SELECT id, leaf_hash FROM telemetry_events
+        WHERE merkle_root_id IS NULL
+        ORDER BY created_at ASC, id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, hash)| (id, hash.try_into().expect("leaf_hash column is always 32 bytes")))
+        .collect())
+}
+
+/// Creates a `merkle_roots` row and assigns `leaf_index`/`merkle_root_id` to each
+/// event in `ordered_event_ids`, whose order MUST match the order the tree was
+/// built with (see `fetch_pending_leaves`). Runs in one transaction so a crash
+/// mid-assignment can't leave some events anchored to a root and others not.
+pub async fn create_merkle_root_and_assign(
+    pool: &PgPool,
+    root_id: Uuid,
+    root_hash: [u8; 32],
+    ordered_event_ids: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("INSERT INTO merkle_roots (id, root_hash, leaf_count) VALUES ($1, $2, $3)")
+        .bind(root_id)
+        .bind(root_hash.as_slice())
+        .bind(ordered_event_ids.len() as i32)
+        .execute(&mut *tx)
+        .await?;
+
+    for (index, event_id) in ordered_event_ids.iter().enumerate() {
+        sqlx::query("UPDATE telemetry_events SET merkle_root_id = $1, leaf_index = $2 WHERE id = $3")
+            .bind(root_id)
+            .bind(index as i32)
+            .bind(event_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn fetch_event(pool: &PgPool, event_id: Uuid) -> Result<Option<TelemetryEventRow>, sqlx::Error> {
+    sqlx::query_as::<_, TelemetryEventRow>(
+        "SELECT id, agent_id, nonce, leaf_hash, merkle_root_id, leaf_index FROM telemetry_events WHERE id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn fetch_root(pool: &PgPool, root_id: Uuid) -> Result<Option<MerkleRootRow>, sqlx::Error> {
+    sqlx::query_as::<_, MerkleRootRow>(
+        "SELECT id, root_hash, leaf_count, tx_hash, created_at FROM merkle_roots WHERE id = $1",
+    )
+    .bind(root_id)
+    .fetch_optional(pool)
+    .await
+}
+
+// ---------------------------------------------------------------------------------
+// Markets cache (§6.9) — GET /v1/markets, GET /v1/markets/{id}
+// ---------------------------------------------------------------------------------
+
+/// Cached `IntegrityMarket` view state, as last read live by `chain::ChainClient::read_market`.
+/// Token amounts are TEXT (exact decimal strings of a `uint256`) — see
+/// `migrations/0002_markets_and_judge.sql`'s header note on why.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketCacheRow {
+    pub address: String,
+    pub creator_address: String,
+    pub question: String,
+    pub outcome_count: i16,
+    pub min_ais_to_enter: String,
+    pub resolve_deadline: i64,
+    pub resolved: bool,
+    pub winning_outcome: i16,
+    pub total_staked: String,
+    pub outcome_staked: serde_json::Value,
+    pub refreshed_at: DateTime<Utc>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_market_cache(
+    pool: &PgPool,
+    address: &str,
+    creator_address: &str,
+    question: &str,
+    outcome_count: i16,
+    min_ais_to_enter: &str,
+    resolve_deadline: i64,
+    resolved: bool,
+    winning_outcome: i16,
+    total_staked: &str,
+    outcome_staked: &serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO markets_cache
+            (address, creator_address, question, outcome_count, min_ais_to_enter, resolve_deadline,
+             resolved, winning_outcome, total_staked, outcome_staked, refreshed_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+        ON CONFLICT (address) DO UPDATE SET
+            creator_address = EXCLUDED.creator_address,
+            question = EXCLUDED.question,
+            outcome_count = EXCLUDED.outcome_count,
+            min_ais_to_enter = EXCLUDED.min_ais_to_enter,
+            resolve_deadline = EXCLUDED.resolve_deadline,
+            resolved = EXCLUDED.resolved,
+            winning_outcome = EXCLUDED.winning_outcome,
+            total_staked = EXCLUDED.total_staked,
+            outcome_staked = EXCLUDED.outcome_staked,
+            refreshed_at = now()
+        "#,
+    )
+    .bind(address)
+    .bind(creator_address)
+    .bind(question)
+    .bind(outcome_count)
+    .bind(min_ais_to_enter)
+    .bind(resolve_deadline)
+    .bind(resolved)
+    .bind(winning_outcome)
+    .bind(total_staked)
+    .bind(outcome_staked)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_market_cache(pool: &PgPool, address: &str) -> Result<Option<MarketCacheRow>, sqlx::Error> {
+    sqlx::query_as::<_, MarketCacheRow>(
+        r#"
+        SELECT address, creator_address, question, outcome_count, min_ais_to_enter, resolve_deadline,
+               resolved, winning_outcome, total_staked, outcome_staked, refreshed_at
+        FROM markets_cache WHERE address = $1
+        "#,
+    )
+    .bind(address)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_market_cache(pool: &PgPool) -> Result<Vec<MarketCacheRow>, sqlx::Error> {
+    sqlx::query_as::<_, MarketCacheRow>(
+        r#"
+        SELECT address, creator_address, question, outcome_count, min_ais_to_enter, resolve_deadline,
+               resolved, winning_outcome, total_staked, outcome_staked, refreshed_at
+        FROM markets_cache ORDER BY resolve_deadline ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Single-row marker of when the full market membership was last re-enumerated from
+/// `MarketFactory` (see `migrations/0002_markets_and_judge.sql`'s header note).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketsIndexSyncRow {
+    pub market_count: i32,
+    pub synced_at: DateTime<Utc>,
+}
+
+pub async fn get_markets_index_sync(pool: &PgPool) -> Result<Option<MarketsIndexSyncRow>, sqlx::Error> {
+    sqlx::query_as::<_, MarketsIndexSyncRow>("SELECT market_count, synced_at FROM markets_index_sync WHERE id = TRUE")
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn upsert_markets_index_sync(pool: &PgPool, market_count: i32, synced_at: DateTime<Utc>) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO markets_index_sync (id, market_count, synced_at) VALUES (TRUE, $1, $2)
+        ON CONFLICT (id) DO UPDATE SET market_count = EXCLUDED.market_count, synced_at = EXCLUDED.synced_at
+        "#,
+    )
+    .bind(market_count)
+    .bind(synced_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------
+// Judge evaluations (storage + ingestion plumbing only — task write-up item 6)
+// ---------------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_judge_evaluation(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    run_id: &str,
+    judge_model: &str,
+    verdict: &str,
+    score: Option<f64>,
+    rationale_summary: Option<&str>,
+    telemetry_event_id: Option<Uuid>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO judge_evaluations
+            (id, agent_id, run_id, judge_model, verdict, score, rationale_summary, telemetry_event_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(run_id)
+    .bind(judge_model)
+    .bind(verdict)
+    .bind(score)
+    .bind(rationale_summary)
+    .bind(telemetry_event_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Leaves belonging to an already-anchored root, in the exact order the tree was
+/// originally built with (by `leaf_index`) — required to rebuild the same tree
+/// shape and regenerate a matching inclusion proof.
+pub async fn fetch_leaves_for_root(pool: &PgPool, root_id: Uuid) -> Result<Vec<(i32, [u8; 32])>, sqlx::Error> {
+    let rows: Vec<(i32, Vec<u8>)> = sqlx::query_as(
+        r#"
+        SELECT leaf_index, leaf_hash FROM telemetry_events
+        WHERE merkle_root_id = $1
+        ORDER BY leaf_index ASC
+        "#,
+    )
+    .bind(root_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(idx, hash)| (idx, hash.try_into().expect("leaf_hash column is always 32 bytes")))
+        .collect())
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct TelemetryEventDetail {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub nonce: i64,
+    pub performance_variance: f64,
+    pub hgi_raw: f64,
+    pub gpu_hours_verified: f64,
+    pub flagged: bool,
+    pub zk_verified: bool,
+    pub leaf_hash: Vec<u8>,
+    pub payload: serde_json::Value,
+    pub merkle_root_id: Option<Uuid>,
+    pub leaf_index: Option<i32>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct JudgeEvaluationRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub run_id: String,
+    pub judge_model: String,
+    pub verdict: String,
+    pub score: Option<f64>,
+    pub rationale_summary: Option<String>,
+    pub telemetry_event_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn get_recent_telemetry(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<TelemetryEventDetail>, sqlx::Error> {
+    sqlx::query_as::<_, TelemetryEventDetail>(
+        r#"
+        SELECT id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified,
+               flagged, zk_verified, leaf_hash, payload, merkle_root_id, leaf_index, created_at
+        FROM telemetry_events
+        WHERE agent_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_recent_evaluations(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<JudgeEvaluationRow>, sqlx::Error> {
+    sqlx::query_as::<_, JudgeEvaluationRow>(
+        r#"
+        SELECT id, agent_id, run_id, judge_model, verdict, score, rationale_summary, telemetry_event_id, created_at
+        FROM judge_evaluations
+        WHERE agent_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+// ---------------------------------------------------------------------------------
+// otel_spans (real OTLP receiver storage, see otlp.rs) + time-bucketed history
+// (PRODUCTION_GAPS.md §1 items 2-3) — see migration 0004's header comment for why
+// this table exists separately from telemetry_events and is never an AIS input.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct OtelSpanRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
+    pub name: String,
+    pub kind: String,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub status_code: String,
+    pub attributes: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_otel_span(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    trace_id: &str,
+    span_id: &str,
+    parent_span_id: Option<&str>,
+    name: &str,
+    kind: &str,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    status_code: &str,
+    attributes: &serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO otel_spans
+            (id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(trace_id)
+    .bind(span_id)
+    .bind(parent_span_id)
+    .bind(name)
+    .bind(kind)
+    .bind(start_time)
+    .bind(end_time)
+    .bind(status_code)
+    .bind(attributes)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Every span belonging to one trace, in start-time order — the shape
+/// `ChainOfThoughtPage`'s DAG view walks (parent_span_id links form the tree).
+pub async fn get_otel_spans_for_trace(pool: &PgPool, trace_id: &str) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
+    sqlx::query_as::<_, OtelSpanRow>(
+        r#"
+        SELECT id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, created_at
+        FROM otel_spans
+        WHERE trace_id = $1
+        ORDER BY start_time ASC
+        "#,
+    )
+    .bind(trace_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// One time bucket's worth of the same raw aggregates `aggregate_for_ais` computes over
+/// the whole reporting window — callers feed each bucket through the identical
+/// `scoring_core::AisEngine::score` call `compute_ais_for_agent` uses, so a historical
+/// point is never computed by a second, drifted formula path.
+#[derive(Debug, Clone, Copy)]
+pub struct AisBucketAggregate {
+    pub bucket_start: DateTime<Utc>,
+    pub avg_variance: f64,
+    pub avg_hgi: f64,
+    pub sum_gpu_hours: f64,
+    pub penalty_ratio: f64,
+    pub zk_verified_this_period: bool,
+    pub event_count: i64,
+}
+
+/// `bucket_interval` must be a Postgres-interval-parseable literal (e.g. `"1 hour"`) —
+/// callers should route it through `handlers::parse_bucket_interval` first, which
+/// restricts input to a fixed allowlist before it ever reaches this bind parameter.
+/// `time_bucket` is a TimescaleDB function, available once the extension is installed
+/// (migration 0004) against ANY table, not only hypertables — `telemetry_events` is
+/// deliberately not a hypertable itself (see that migration's notes), so this still
+/// works against it unmodified.
+pub async fn ais_history_buckets(
+    pool: &PgPool,
+    agent_id: &str,
+    bucket_interval: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
+    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, bool, i64)> = sqlx::query_as(
+        r#"
+        SELECT
+            time_bucket($1::interval, created_at) AS bucket_start,
+            COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
+            COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
+            COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
+            COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
+            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COUNT(*) AS event_count
+        FROM telemetry_events
+        WHERE agent_id = $2 AND created_at >= $3
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        "#,
+    )
+    .bind(bucket_interval)
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(bucket_start, avg_variance, avg_hgi, sum_gpu_hours, penalty_ratio, zk_verified_this_period, event_count)| {
+            AisBucketAggregate {
+                bucket_start,
+                avg_variance,
+                avg_hgi,
+                sum_gpu_hours,
+                penalty_ratio,
+                zk_verified_this_period,
+                event_count,
+            }
+        })
+        .collect())
+}
+
+/// Telemetry ingestion volume (`telemetry_events`) bucketed by time, for
+/// `FinancePage`/`IntelligencePage` volume charts.
+pub async fn telemetry_volume_buckets(
+    pool: &PgPool,
+    agent_id: &str,
+    bucket_interval: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(DateTime<Utc>, i64, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            time_bucket($1::interval, created_at) AS bucket_start,
+            COUNT(*) AS count,
+            COUNT(*) FILTER (WHERE flagged) AS flagged_count
+        FROM telemetry_events
+        WHERE agent_id = $2 AND created_at >= $3
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        "#,
+    )
+    .bind(bucket_interval)
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
+/// Real OTLP span volume (`otel_spans`) bucketed by time, for `SdkTelemetryPage`.
+pub async fn otel_volume_buckets(
+    pool: &PgPool,
+    agent_id: &str,
+    bucket_interval: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(DateTime<Utc>, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            time_bucket($1::interval, created_at) AS bucket_start,
+            COUNT(*) AS span_count
+        FROM otel_spans
+        WHERE agent_id = $2 AND created_at >= $3
+        GROUP BY bucket_start
+        ORDER BY bucket_start ASC
+        "#,
+    )
+    .bind(bucket_interval)
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+

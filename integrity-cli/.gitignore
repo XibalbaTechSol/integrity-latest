@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test/tooling artifacts
+.pytest_cache/
+.coverage
+
+# Never commit a populated .env -- only .env.example (placeholders) is checked in.
+.env
+

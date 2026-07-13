@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Integrity Protocol Wiki</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="Compiled knowledge base for the Integrity Protocol monorepo.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css">
+  <style>
+    :root { --theme-color: #c9a84c; }
+    body { background-color: #0b0f14 !important; color: #f4f4f5 !important; }
+    .sidebar { background-color: #05080b !important; border-right: 1px solid rgba(255,255,255,0.05); }
+    .markdown-section { max-width: 950px !important; }
+    code { color: #c9a84c !important; background-color: rgba(201,168,76,0.08) !important; }
+    .markdown-section pre { background-color: #05080b !important; border-left: 3px solid #c9a84c !important; }
+  </style>
+</head>
+<body>
+  <div id="app">Loading wiki...</div>
+  <script>
+    var path = window.location.pathname;
+    var basePath = path.endsWith('.html') ? path.substring(0, path.lastIndexOf('/') + 1) : path;
+    if (!basePath.endsWith('/')) { basePath += '/'; }
+    window.$docsify = {
+      name: 'Integrity Protocol Wiki',
+      homepage: 'index.md',
+      basePath: basePath,
+      relativePath: true,
+      loadSidebar: false,
+      auto2top: true,
+      search: { maxAge: 86400000, paths: 'auto', placeholder: 'Search the wiki...', depth: 6 }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+</body>
+</html>

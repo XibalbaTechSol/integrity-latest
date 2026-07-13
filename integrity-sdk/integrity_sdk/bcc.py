@@ -1,0 +1,171 @@
+"""
+Behavioral Commitment Chain (BCC) commitment construction — docs/INTERFACE_CONTRACT.md §4.2.
+
+A BCC commitment is the intent-lock object an agent produces *before* taking
+an action: "I, agent X, am about to do intent Y, whose payload hashes to Z,
+and I've signed this whole statement with my DID key." `bcc_middleware`
+(a sibling package, built independently and in parallel) receives this exact
+JSON shape at `POST /v1/bcc/intercept` and must be able to reconstruct the
+same hash and verify the same signature from the raw JSON alone — so the
+canonicalization rules below are not a style preference, they're part of the
+wire protocol.
+
+Canonical JSON encoding (used for BOTH the intent-payload hash and the
+commitment signature):
+  - `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)`
+  - Keys sorted lexicographically (byte-wise ASCII order) — this is what
+    `sort_keys=True` does in Python and what most other languages' "sort
+    object keys" helpers do too, so it's a safe cross-language convention.
+  - No inserted whitespace (`separators=(",", ":")`).
+  - `ensure_ascii=True` (json's default): non-ASCII characters are escaped as
+    `\\uXXXX` rather than emitted as raw UTF-8 bytes. This is REQUIRED for
+    byte-for-byte reproducibility — a Rust or Go implementation using a
+    different default here would produce a different byte string and a
+    different hash/signature, even though the *logical* JSON is identical.
+  - Integers only for `nonce` and `timestamp` — never floats. Python's `json`
+    renders `1719000000000` and `1719000000000.0` differently, and other
+    languages differ on trailing `.0`, so floats here would break
+    cross-implementation hash agreement.
+
+Hash function: intended_state_hash is fixed by the contract to be SHA-256
+of the canonical intent payload (not a policy choice made here).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from .did import Keypair, public_key_multibase, verify_signature
+
+
+def canonical_json_bytes(obj: Any) -> bytes:
+    """The one and only canonicalization used across the SDK for anything
+    that gets hashed or signed. See module docstring for why each flag matters."""
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
+def hash_intent_payload(intent_payload: Dict[str, Any]) -> str:
+    """SHA-256 of the canonical intent payload, as `0x`-prefixed hex —
+    this becomes `intended_state_hash` (§4.2)."""
+    digest = hashlib.sha256(canonical_json_bytes(intent_payload)).hexdigest()
+    return "0x" + digest
+
+
+class NonceStore:
+    """
+    Persists a monotonically increasing per-agent nonce to disk so it
+    survives process restarts. §4.2 requires the BCC `nonce` to be
+    "monotonic per-agent" — a nonce that resets to 0 on every restart would
+    let a compromised or buggy client replay an old commitment's nonce,
+    which is exactly what monotonicity is meant to prevent.
+
+    This is intentionally simple (a single JSON counter file behind a
+    process-local lock) and is NOT safe for multiple processes sharing one
+    agent identity concurrently — that would need a real lock file or a
+    server-side nonce authority (bcc_middleware could serve this role).
+    Documented here rather than silently assumed away.
+    """
+
+    def __init__(self, path: Path):
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+
+    def next(self) -> int:
+        with self._lock:
+            current = 0
+            if self._path.exists():
+                try:
+                    current = int(self._path.read_text().strip() or "0")
+                except ValueError:
+                    current = 0
+            nxt = current + 1
+            self._path.write_text(str(nxt))
+            return nxt
+
+
+def build_bcc_commitment(
+    *,
+    agent_id: str,
+    intent_type: str,
+    intent_payload: Dict[str, Any],
+    nonce: int,
+    keypair: Keypair,
+    timestamp_ms: Optional[int] = None,
+    covered_entity_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Construct and sign a BCC commitment (§4.2, plus the two reconciled
+    extension fields below):
+
+        {agent_id, intent_type, intended_state_hash, nonce, timestamp,
+         covered_entity_address, agent_public_key, signature}
+
+    Field names are load-bearing (per the contract) — do not rename them.
+
+    Two fields beyond the frozen §4.2 five are signed over here, and MUST
+    match `bcc_middleware/app/canonical.py` byte-for-byte or every signature
+    fails verification:
+
+      - `covered_entity_address`: the hospital an `EMR_WRITE`/clinical intent
+        is against (nullable for non-healthcare intents). Signed, not just
+        carried, so an attacker can't swap the target hospital on an
+        otherwise-valid commitment (see schemas.py's field docstring).
+
+      - `agent_public_key`: the agent's Ed25519 public key in the same
+        multibase form as the DID document's `publicKeyMultibase` (§4.1).
+        This is REQUIRED because this SDK's DID fingerprint is
+        `sha256(pubkey)`, NOT the raw pubkey — so a verifier holding only the
+        `agent_id` DID string cannot recover the key to check the signature.
+        Carrying it here makes the commitment self-verifying: the middleware
+        confirms `sha256(decoded_pubkey) == did_fingerprint` (binding the key
+        to the DID, so it can't be substituted) and then verifies the
+        signature against it. No external DID-resolution round-trip needed.
+    """
+    timestamp_ms = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
+    intended_state_hash = hash_intent_payload(intent_payload)
+
+    # The object that gets signed is the commitment MINUS the signature
+    # field itself (you can't sign your own signature). Both sender and
+    # receiver must derive this exact dict shape from the final JSON by just
+    # dropping `signature` — no other field is excluded.
+    unsigned = {
+        "agent_id": agent_id,
+        "intent_type": intent_type,
+        "intended_state_hash": intended_state_hash,
+        "nonce": nonce,
+        "timestamp": timestamp_ms,
+        "covered_entity_address": covered_entity_address,
+        "agent_public_key": public_key_multibase(keypair.public_bytes()),
+    }
+    signature_bytes = keypair.sign(canonical_json_bytes(unsigned))
+
+    commitment = dict(unsigned)
+    commitment["signature"] = "0x" + signature_bytes.hex()
+    return commitment
+
+
+def verify_bcc_commitment(commitment: Dict[str, Any], pubkey_bytes: bytes) -> bool:
+    """
+    Independently re-derive the signed payload from `commitment` and check
+    the Ed25519 signature. Used by tests (and available to any caller that
+    wants a local sanity check before round-tripping to bcc_middleware,
+    which is the authoritative verifier in production).
+    """
+    sig_hex = commitment.get("signature", "")
+    if not sig_hex.startswith("0x"):
+        return False
+    try:
+        signature_bytes = bytes.fromhex(sig_hex[2:])
+    except ValueError:
+        return False
+
+    unsigned = {k: v for k, v in commitment.items() if k != "signature"}
+    return verify_signature(pubkey_bytes, canonical_json_bytes(unsigned), signature_bytes)

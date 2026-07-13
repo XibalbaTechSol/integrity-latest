@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""
+Test support: builds and EIP-191-signs a real `POST /v1/telemetry/ingest` payload for
+a throwaway secp256k1 key, using integrity-sdk's own `bcc.canonical_json_bytes` (the
+exact canonicalization `crypto::verify_agent_signature` on the Rust side must agree
+with) so the signature this produces is byte-for-byte what a real agent would send —
+not a hand-rolled approximation of the wire format.
+
+Deliberately does NOT go through integrity-sdk's `IntegrityClient.flush_telemetry`:
+that method's own docstring documents an unresolved telemetry-envelope-signing gap
+unrelated to this test's purpose (verifying the oracle's SSE push matches its own AIS
+read), so this script signs the envelope directly instead of depending on that gap's
+resolution.
+
+Args (all via argv): private_key_hex, agent_id, nonce (int), entropy, grounding,
+sacrifice, compliance (floats)
+
+Prints the full signed JSON payload (ready to POST as-is) to stdout.
+"""
+
+import json
+import sys
+
+from eth_account import Account
+from eth_account.messages import encode_defunct
+
+from integrity_sdk import bcc
+
+
+def main() -> None:
+    private_key = sys.argv[1]
+    agent_id = sys.argv[2]
+    nonce = int(sys.argv[3])
+    entropy, grounding, sacrifice, compliance = (float(x) for x in sys.argv[4:8])
+
+    signable = {
+        "agent_id": agent_id,
+        "nonce": nonce,
+        "otel_spans": [],
+        "derived_signals": {
+            "entropy": entropy,
+            "grounding": grounding,
+            "sacrifice": sacrifice,
+            "compliance": compliance,
+        },
+        "zk_proof": None,
+    }
+    message = bcc.canonical_json_bytes(signable)
+    signed = Account.sign_message(encode_defunct(message), private_key=private_key)
+    signature = "0x" + signed.signature.hex().removeprefix("0x")
+
+    print(json.dumps({**signable, "signature": signature}))
+
+
+if __name__ == "__main__":
+    main()

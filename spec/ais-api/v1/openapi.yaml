@@ -1,0 +1,1162 @@
+openapi: 3.1.0
+info:
+  title: Integrity Protocol — AIS API
+  description: Read-side wire protocol for querying an agent's Agent Integrity Score (AIS), on-chain primitive addresses, compliance status, market state, and wallet balances. This is the versioned, externally-supported surface — /v1/* is additive-only for its lifetime; any field rename, type change, or removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the integration guide and spec/ais-api/CHANGELOG.md for the version history.
+  license:
+    name: ''
+  version: 1.0.0
+paths:
+  /v1/agent/register:
+    post:
+      tags:
+      - agents
+      summary: |-
+        Registers an agent, but only after independently confirming on-chain that the
+        primitives it claims actually belong to its DID. This is the crux of the
+        self-sovereign model being honest end-to-end: without this check, `/v1/agent/register`
+        would just be recording whatever the client says, and the entire "the chain is the
+        source of truth" premise (§6) would be decorative.
+      operationId: register_agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAgentRequest'
+        required: true
+      responses:
+        '200':
+          description: Agent registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterAgentResponse'
+        '400':
+          description: Bad request
+        '409':
+          description: Agent already registered
+  /v1/agent/{id}:
+    get:
+      tags:
+      - agents
+      operationId: get_agent
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID (`did:integrity:<fingerprint>`)
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Agent found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        '404':
+          description: Unknown DID
+  /v1/agent/{id}/ais:
+    get:
+      tags:
+      - ais
+      operationId: get_ais
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Current AIS (Agent Integrity Score) breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AisResponse'
+        '404':
+          description: Unknown DID
+  /v1/agent/{id}/ais/history:
+    get:
+      tags:
+      - ais
+      operationId: get_ais_history
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      - name: bucket
+        in: query
+        description: 'One of: 5m, 15m, 1h, 6h, 1d, 1w (default 1h)'
+        required: false
+        schema:
+          type: string
+      - name: since
+        in: query
+        description: RFC3339 timestamp; default now - 7 days
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: AIS trend, bucketed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AisHistoryPoint'
+        '400':
+          description: Unsupported bucket value
+        '404':
+          description: Agent not found
+  /v1/agent/{id}/compliance:
+    get:
+      tags:
+      - compliance
+      operationId: get_compliance
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      - name: covered_entity
+        in: query
+        description: Covered-entity address to check isHealthcareCompliant against
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Declared vertical + live compliance verdict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceResponse'
+  /v1/agent/{id}/otel/volume:
+    get:
+      tags:
+      - telemetry
+      operationId: get_otel_volume
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      - name: bucket
+        in: query
+        description: 'One of: 5m, 15m, 1h, 6h, 1d, 1w (default 1h)'
+        required: false
+        schema:
+          type: string
+      - name: since
+        in: query
+        description: RFC3339 timestamp; default now - 7 days
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Real OTLP span volume, bucketed. Unauthenticated data source (see otlp.rs) — no 404 on an unknown agent_id, since one was never required to exist.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OtelVolumeBucket'
+  /v1/agent/{id}/telemetry:
+    get:
+      tags:
+      - agents
+      operationId: get_telemetry_history
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: List of telemetry events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TelemetryEventDetailDto'
+        '404':
+          description: Agent not found
+  /v1/agent/{id}/telemetry/volume:
+    get:
+      tags:
+      - telemetry
+      operationId: get_telemetry_volume
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      - name: bucket
+        in: query
+        description: 'One of: 5m, 15m, 1h, 6h, 1d, 1w (default 1h)'
+        required: false
+        schema:
+          type: string
+      - name: since
+        in: query
+        description: RFC3339 timestamp; default now - 7 days
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Signed telemetry ingest volume, bucketed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VolumeBucket'
+        '400':
+          description: Unsupported bucket value
+        '404':
+          description: Agent not found
+  /v1/agent/{id}/traces:
+    get:
+      tags:
+      - agents
+      operationId: get_traces
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: List of judge evaluations/traces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentJudgeEvaluationDto'
+        '404':
+          description: Agent not found
+  /v1/agent/{id}/wallet:
+    get:
+      tags:
+      - wallet
+      operationId: get_wallet
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: $ITK balance + open market positions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '404':
+          description: Unknown DID
+  /v1/agents:
+    get:
+      tags:
+      - agents
+      operationId: list_agents
+      responses:
+        '200':
+          description: All registered agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentSummary'
+  /v1/leaderboard:
+    get:
+      tags:
+      - ais
+      operationId: get_leaderboard
+      responses:
+        '200':
+          description: Agents ranked by on-chain ReputationRegistry.effectiveScore
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeaderboardEntryDto'
+  /v1/markets:
+    get:
+      tags:
+      - markets
+      operationId: list_markets
+      responses:
+        '200':
+          description: All known IntegrityMarket instances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketSummaryDto'
+  /v1/markets/{id}:
+    get:
+      tags:
+      - markets
+      operationId: get_market
+      parameters:
+      - name: id
+        in: path
+        description: IntegrityMarket contract address
+        required: true
+        schema:
+          type: string
+      - name: agent
+        in: query
+        description: SovereignAgent address to include a your_position read for
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Market detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketDetailDto'
+        '400':
+          description: Invalid address / no readable IntegrityMarket at that address
+  /v1/telemetry/ingest:
+    post:
+      tags:
+      - telemetry
+      operationId: ingest_telemetry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelemetryIngestRequest'
+        required: true
+      responses:
+        '200':
+          description: Event ingested and Merkle-leafed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryIngestResponse'
+        '400':
+          description: Bad request / PHI detected in payload
+        '401':
+          description: Signature verification failed
+        '404':
+          description: Unknown agent
+        '409':
+          description: Nonce replay
+        '429':
+          description: Rate limited
+components:
+  schemas:
+    AgentJudgeEvaluationDto:
+      type: object
+      required:
+      - id
+      - agent_id
+      - run_id
+      - judge_model
+      - verdict
+      - created_at
+      properties:
+        agent_id:
+          type: string
+        created_at:
+          type: string
+        id:
+          type: string
+          format: uuid
+        judge_model:
+          type: string
+        rationale_summary:
+          type:
+          - string
+          - 'null'
+        run_id:
+          type: string
+        score:
+          type:
+          - number
+          - 'null'
+          format: double
+        telemetry_event_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        verdict:
+          type: string
+    AgentResponse:
+      type: object
+      required:
+      - id
+      - verification_tier
+      - last_nonce
+      - created_at
+      - has_ed25519_key
+      - has_eth_address
+      - primitives_source
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        did_document:
+          description: |-
+            §4.1 DID Document, as supplied on `POST /v1/agent/register`. `None` for agents that
+            registered before this field existed, or that were only ever seen via a chain
+            backfill (see the "chain-backfill"/"unavailable" `primitives_source` cases below,
+            which synthesize a response with no local `agents` row at all).
+        has_ed25519_key:
+          type: boolean
+        has_eth_address:
+          type: boolean
+        id:
+          type: string
+        last_nonce:
+          type: integer
+          format: int64
+        primitives:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/PrimitiveSetDto'
+        primitives_source:
+          type: string
+          description: |-
+            True when this response's `primitives` came from a live chain read performed just
+            now (cache miss / no local `agents` row), rather than the Postgres cache.
+        verification_tier:
+          type: integer
+          format: int32
+          description: |-
+            RESERVED (partially enforced) — server-verified as of this version (`register_agent`
+            computes it independently; a client can no longer self-assert a value), but only
+            Tier 1 is currently achievable (no Tier 2/3 verification path is built), and only
+            `bcc_middleware`'s policy gate consults it, and only for a subset of intent_types —
+            see `spec/bcc/v1/README.md` once that surface exists. Most integrations should
+            still treat this as informational rather than build authorization logic on top of
+            it directly.
+    AgentSummary:
+      type: object
+      required:
+      - id
+      - verification_tier
+      - created_at
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        id:
+          type: string
+        verification_tier:
+          type: integer
+          format: int32
+    AisComponents:
+      type: object
+      required:
+      - entropy
+      - grounding
+      - sacrifice
+      - compliance
+      properties:
+        compliance:
+          type: number
+          format: double
+        entropy:
+          type: number
+          format: double
+        grounding:
+          type: number
+          format: double
+        sacrifice:
+          type: number
+          format: double
+    AisHistoryPoint:
+      type: object
+      required:
+      - bucket_start
+      - ais
+      - entropy
+      - grounding
+      - sacrifice
+      - compliance
+      - zk_boost
+      - event_count
+      properties:
+        ais:
+          type: number
+          format: double
+        bucket_start:
+          type: string
+          format: date-time
+        compliance:
+          type: number
+          format: double
+        entropy:
+          type: number
+          format: double
+        event_count:
+          type: integer
+          format: int64
+        grounding:
+          type: number
+          format: double
+        sacrifice:
+          type: number
+          format: double
+        zk_boost:
+          type: number
+          format: double
+    AisResponse:
+      type: object
+      required:
+      - agent_id
+      - ais
+      - components
+      - weights
+      - zk_boost
+      - zk_proof_verified
+      - period_start
+      - period_end
+      - event_count
+      properties:
+        agent_id:
+          type: string
+        ais:
+          type: number
+          format: double
+        components:
+          $ref: '#/components/schemas/AisComponents'
+        event_count:
+          type: integer
+          format: int64
+        onchain_zk_boost_consistent:
+          type:
+          - boolean
+          - 'null'
+          description: |-
+            Present only when a cached on-chain ReputationRegistry address is known for this
+            agent — a nice-to-have cross-check (per the task's "not required" note) that the
+            oracle's off-chain `zk_verified_this_period` telemetry flag agrees with the
+            contract's own independently-earned `isZkBoosted` state. A mismatch here doesn't
+            fail the request (the two are allowed to be transiently out of sync — e.g. a proof
+            submitted directly to the contract that hasn't shown up in telemetry yet) but is
+            worth surfacing to an operator.
+        period_end:
+          type: string
+          format: date-time
+        period_start:
+          type: string
+          format: date-time
+        weights:
+          $ref: '#/components/schemas/AisWeightsSchema'
+        zk_boost:
+          type: number
+          format: double
+        zk_proof_verified:
+          type: boolean
+    AisWeightsSchema:
+      type: object
+      description: |-
+        Schema-only mirror of `scoring_core::AisWeights` for OpenAPI generation.
+        `scoring-core` is deliberately dependency-free beyond `serde` (see its Cargo.toml —
+        it's the single source of truth for the AIS formula and must stay trivially
+        auditable), so it doesn't derive `utoipa::ToSchema` itself. This struct's fields
+        must stay in sync with `scoring_core::AisWeights` by hand; a `scoring_core` unit
+        test pinning its `Serialize` output's field names is the backstop against drift
+        (see scoring-core's existing `default_weights_sum_to_one` test module).
+      required:
+      - w_entropy
+      - w_grounding
+      - w_sacrifice
+      - w_compliance
+      properties:
+        w_compliance:
+          type: number
+          format: double
+        w_entropy:
+          type: number
+          format: double
+        w_grounding:
+          type: number
+          format: double
+        w_sacrifice:
+          type: number
+          format: double
+    ComplianceResponse:
+      type: object
+      required:
+      - agent_id
+      - vertical
+      - is_compliant
+      properties:
+        agent_id:
+          type: string
+        covered_entity:
+          type:
+          - string
+          - 'null'
+        is_compliant:
+          type: boolean
+        vertical:
+          type: string
+    DerivedSignals:
+      type: object
+      required:
+      - entropy
+      - grounding
+      - sacrifice
+      - compliance
+      properties:
+        compliance:
+          type: number
+          format: double
+          description: |-
+            Whether the BCC/OPA pipeline (bcc_middleware) flagged this specific event's intent.
+            This oracle treats it as a straightforward boolean-ish signal (>0.5 => flagged);
+            see the field's doc in `aggregate_for_ais`/scoring-core for how per-event flags
+            become the period's `penalty_ratio`.
+        entropy:
+          type: number
+          format: double
+          description: |-
+            Maps to `telemetry_events.performance_variance` (S_entropy's raw input, §4.3) —
+            higher means less stable/more erratic behavior for this event.
+        grounding:
+          type: number
+          format: double
+          description: Maps to `telemetry_events.hgi_raw`, in `[0.0, 1.0]`.
+        sacrifice:
+          type: number
+          format: double
+          description: Maps to `telemetry_events.gpu_hours_verified` for this event.
+    JudgeEvaluationDto:
+      type: object
+      description: |-
+        A judge (LLM-as-judge) evaluation, optionally carried alongside a telemetry
+        ingestion — storage + ingestion plumbing only (task write-up item 6). No judge/
+        rubric implementation exists in this codebase; this is purely "if some other
+        component produces one of these, the oracle can persist it." Deliberately NOT part
+        of `ingest_telemetry`'s signed payload (see that handler's `signable` JSON
+        construction below, which does not reference this field) — adding it there would
+        retroactively invalidate every telemetry signature a client produced before this
+        field existed. It rides along as an unauthenticated sidecar on an otherwise-
+        authenticated request (the rest of the payload still requires a valid agent
+        signature); this is an accepted, documented scope limit for now.
+      required:
+      - run_id
+      - judge_model
+      - verdict
+      properties:
+        judge_model:
+          type: string
+        rationale_summary:
+          type:
+          - string
+          - 'null'
+        run_id:
+          type: string
+        score:
+          type:
+          - number
+          - 'null'
+          format: double
+        verdict:
+          type: string
+    LeaderboardEntryDto:
+      type: object
+      required:
+      - agent_id
+      - sovereign_agent
+      - effective_score
+      properties:
+        agent_id:
+          type: string
+        effective_score:
+          type: string
+          description: |-
+            Real `ReputationRegistry.effectiveScore` read (decimal string — see
+            migrations/0002's header note on uint256 serialization), NOT the off-chain
+            `scoring-core` AIS float `GET /v1/agent/{id}/ais` returns — the two are related
+            but distinct numbers (the on-chain value is the last score this oracle itself
+            pushed via `ReputationRegistry.updateScore`, possibly zk-boosted).
+        realized_pnl:
+          type:
+          - string
+          - 'null'
+          description: |-
+            Realized P&L is NOT computed. It would require indexing `IntegrityMarket`
+            `PositionEntered`/`MarketResolved`/`PayoutClaimed` events across every market —
+            out of scope for this pass. `null`, always — never a fabricated number. See
+            `docs/wiki/entities/integrity-oracle.md` for the documented follow-up.
+        sovereign_agent:
+          type: string
+    MarketDetailDto:
+      allOf:
+      - type: object
+        required:
+        - address
+        - creator
+        - question
+        - outcome_count
+        - min_ais_to_enter
+        - resolve_deadline
+        - resolved
+        - total_staked
+        - outcome_staked
+        properties:
+          address:
+            type: string
+          creator:
+            type: string
+          min_ais_to_enter:
+            type: string
+            description: |-
+              Decimal string — see migrations/0002's header note on why uint256 amounts are
+              never serialized as a JSON number.
+          outcome_count:
+            type: integer
+            format: int32
+            minimum: 0
+          outcome_staked:
+            type: array
+            items:
+              type: string
+            description: |-
+              Per-outcome pari-mutuel pool, decimal strings, index = outcome index. Cheap
+              public-getter reads (`outcomeStaked(i)`), unlike per-holder positions (see
+              `MarketDetailDto`'s doc comment).
+          question:
+            type: string
+          resolve_deadline:
+            type: string
+            format: date-time
+          resolved:
+            type: boolean
+          total_staked:
+            type: string
+          winning_outcome:
+            type:
+            - integer
+            - 'null'
+            format: int32
+            minimum: 0
+      - type: object
+        required:
+        - positions_note
+        properties:
+          positions_note:
+            type: string
+          your_position:
+            oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/PositionDto'
+              description: |-
+                Only populated when the request carries `?agent=0x...` — a single, cheap
+                `getPosition(agent)` read. Real per-holder enumeration across ALL positions
+                would require indexing `PositionEntered` events, which this pass does not
+                build — a documented gap, not a silent omission.
+    MarketSummaryDto:
+      type: object
+      required:
+      - address
+      - creator
+      - question
+      - outcome_count
+      - min_ais_to_enter
+      - resolve_deadline
+      - resolved
+      - total_staked
+      - outcome_staked
+      properties:
+        address:
+          type: string
+        creator:
+          type: string
+        min_ais_to_enter:
+          type: string
+          description: |-
+            Decimal string — see migrations/0002's header note on why uint256 amounts are
+            never serialized as a JSON number.
+        outcome_count:
+          type: integer
+          format: int32
+          minimum: 0
+        outcome_staked:
+          type: array
+          items:
+            type: string
+          description: |-
+            Per-outcome pari-mutuel pool, decimal strings, index = outcome index. Cheap
+            public-getter reads (`outcomeStaked(i)`), unlike per-holder positions (see
+            `MarketDetailDto`'s doc comment).
+        question:
+          type: string
+        resolve_deadline:
+          type: string
+          format: date-time
+        resolved:
+          type: boolean
+        total_staked:
+          type: string
+        winning_outcome:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+    OtelVolumeBucket:
+      type: object
+      required:
+      - bucket_start
+      - span_count
+      properties:
+        bucket_start:
+          type: string
+          format: date-time
+        span_count:
+          type: integer
+          format: int64
+    PositionDto:
+      type: object
+      required:
+      - amount
+      - outcome_index
+      - bcc_commitment_hash
+      - claimed
+      properties:
+        amount:
+          type: string
+        bcc_commitment_hash:
+          type: string
+        claimed:
+          type: boolean
+        outcome_index:
+          type: integer
+          format: int32
+          minimum: 0
+    PrimitiveSetDto:
+      type: object
+      description: |-
+        Wire shape for the 7-address PrimitiveSet (§6.1), matching
+        `integrity-dashboard/src/lib/api/types.ts`'s `PrimitiveSet` field-for-field (camelCase)
+        so the dashboard can deserialize this oracle's responses without a translation layer.
+      required:
+      - sovereign_agent
+      - state_anchor
+      - reputation_registry
+      - slasher
+      - verifier_registry
+      - compliance_gate
+      - agent_profile
+      properties:
+        agent_profile:
+          type: string
+        compliance_gate:
+          type: string
+        reputation_registry:
+          type: string
+        slasher:
+          type: string
+        sovereign_agent:
+          type: string
+        state_anchor:
+          type: string
+        verifier_registry:
+          type: string
+    RegisterAgentRequest:
+      type: object
+      required:
+      - did
+      - did_document
+      - primitives
+      properties:
+        did:
+          type: string
+          description: |-
+            `did:integrity:<fingerprint>` — the agent's canonical off-chain identifier and
+            the primary key of the `agents` table.
+        did_document:
+          description: |-
+            §4.1 DID Document. Stored verbatim in the response for now (no dedicated column —
+            see README/gaps note); its `verificationMethod` is where `ed25519_pubkey_hex`
+            below is expected to have come from, but this handler trusts the explicit field,
+            not a parse of the document, to avoid a second, redundant multibase-decode path.
+        ed25519_pubkey_hex:
+          type:
+          - string
+          - 'null'
+        eth_address_hex:
+          type:
+          - string
+          - 'null'
+        primitives:
+          $ref: '#/components/schemas/PrimitiveSetDto'
+          description: |-
+            The 7 on-chain primitive addresses the client claims it registered via
+            `AgentPrimitivesFactory`. Independently re-verified against
+            `XibalbaAgentRegistry.resolveDID` below — never trusted as-is (see chain.rs's
+            module doc comment for why).
+        verification_tier:
+          type: integer
+          format: int32
+          description: |-
+            ADVISORY ONLY — never trusted. A previous version of this handler stored this
+            client-supplied value directly, which meant any client could self-assert
+            `verification_tier: 3` at registration with nothing server-side checking the
+            claim, defeating the entire point of a verification ladder (see
+            docs/wiki/concepts/identity-ceiling.md). `register_agent` now always computes
+            the real, server-verified tier itself (see that function) and ignores this
+            field; it's kept on the wire only for backward request-shape compatibility.
+    RegisterAgentResponse:
+      type: object
+      required:
+      - id
+      - verification_tier
+      - primitives
+      - controller
+      - domain_id
+      properties:
+        controller:
+          type: string
+        domain_id:
+          type: string
+        id:
+          type: string
+        primitives:
+          $ref: '#/components/schemas/PrimitiveSetDto'
+        verification_tier:
+          type: integer
+          format: int32
+    TelemetryEventDetailDto:
+      type: object
+      required:
+      - id
+      - agent_id
+      - nonce
+      - performance_variance
+      - hgi_raw
+      - gpu_hours_verified
+      - flagged
+      - zk_verified
+      - leaf_hash
+      - payload
+      - created_at
+      properties:
+        agent_id:
+          type: string
+        created_at:
+          type: string
+        flagged:
+          type: boolean
+        gpu_hours_verified:
+          type: number
+          format: double
+        hgi_raw:
+          type: number
+          format: double
+        id:
+          type: string
+          format: uuid
+        leaf_hash:
+          type: string
+        leaf_index:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        merkle_root_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        nonce:
+          type: integer
+          format: int64
+        payload: {}
+        performance_variance:
+          type: number
+          format: double
+        zk_verified:
+          type: boolean
+    TelemetryIngestRequest:
+      type: object
+      required:
+      - agent_id
+      - nonce
+      - derived_signals
+      - signature
+      properties:
+        agent_id:
+          type: string
+        derived_signals:
+          $ref: '#/components/schemas/DerivedSignals'
+        judge_evaluation:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/JudgeEvaluationDto'
+            description: |-
+              See `JudgeEvaluationDto`'s doc comment: optional, unauthenticated sidecar, not part
+              of the signed envelope.
+        nonce:
+          type: integer
+          format: int64
+        otel_spans:
+          type: array
+          items: {}
+        signature:
+          type: string
+          description: |-
+            Hex signature over the canonical JSON (see `crypto::canonical_json_bytes`) of every
+            field above EXCEPT this one and `judge_evaluation` — i.e. the client constructs the
+            object without `signature`, canonicalizes+signs that, then adds this field before
+            POSTing. This mirrors the §4.2 BCC Commitment convention (sign the payload minus the
+            signature field itself) rather than inventing a different scheme for telemetry.
+        zk_proof:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/ZkProofDto'
+    TelemetryIngestResponse:
+      type: object
+      required:
+      - event_id
+      - leaf_hash
+      - zk_verified
+      - flagged
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        flagged:
+          type: boolean
+        leaf_hash:
+          type: string
+        zk_verified:
+          type: boolean
+    VolumeBucket:
+      type: object
+      required:
+      - bucket_start
+      - count
+      - flagged_count
+      properties:
+        bucket_start:
+          type: string
+          format: date-time
+        count:
+          type: integer
+          format: int64
+        flagged_count:
+          type: integer
+          format: int64
+    WalletPositionDto:
+      type: object
+      required:
+      - market_address
+      - question
+      - outcome_index
+      - amount
+      - market_resolved
+      properties:
+        amount:
+          type: string
+        market_address:
+          type: string
+        market_resolved:
+          type: boolean
+        outcome_index:
+          type: integer
+          format: int32
+          minimum: 0
+        question:
+          type: string
+        won:
+          type:
+          - boolean
+          - 'null'
+          description: '`Some(bool)` only once the market has resolved; `None` while still open.'
+    WalletResponse:
+      type: object
+      required:
+      - agent_id
+      - sovereign_agent
+      - itk_balance
+      - open_positions
+      properties:
+        agent_id:
+          type: string
+        itk_balance:
+          type: string
+          description: Real `IntegrityToken.balanceOf(sovereignAgent)` read, decimal string.
+        open_positions:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletPositionDto'
+          description: |-
+            Unclaimed positions (amount > 0, `claimed == false`) across every market in the
+            markets cache, cross-referenced via a real `getPosition` read per market. Bounded
+            by the current market count — fine at this scale, would want indexing if the
+            market count grows into the hundreds+.
+        sovereign_agent:
+          type: string
+        transaction_history:
+          type:
+          - array
+          - 'null'
+          items: {}
+          description: |-
+            Transfer/stake/payout history requires indexing on-chain events (`Transfer`,
+            `PositionEntered`, `PayoutClaimed`, ...), which this pass does not build. `null`,
+            never a fabricated transaction list. See `docs/wiki/entities/integrity-oracle.md`.
+    ZkProofDto:
+      type: object
+      required:
+      - circuit_id
+      - proof
+      - public_inputs
+      properties:
+        circuit_id:
+          type: string
+        proof:
+          type: string
+          description: Base64-encoded raw bytes of `bb prove`'s `proof` output file.
+        public_inputs:
+          type: string
+          description: Base64-encoded raw bytes of `bb prove`'s `public_inputs` output file.
+tags:
+- name: agents
+  description: Agent identity, registration, and on-chain primitive resolution
+- name: ais
+  description: Agent Integrity Score and leaderboard
+- name: telemetry
+  description: Telemetry ingestion (feeds AIS computation)
+- name: compliance
+  description: HIPAA/Shield vertical compliance status
+- name: markets
+  description: IntegrityMarket prediction-market reads
+- name: wallet
+  description: $ITK balance and open market positions

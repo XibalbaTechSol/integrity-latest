@@ -1,0 +1,120 @@
+"""
+Wire schemas for bcc_middleware.
+
+`BCCCommitment` mirrors docs/INTERFACE_CONTRACT.md §4.2 EXACTLY -- field
+names are load-bearing across integrity-sdk, integrity-cli, and this
+service, so nothing here gets renamed for local taste even where a
+different name would read better in isolation.
+"""
+
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+_HEX32 = re.compile(r"^0x[0-9a-fA-F]{64}$")  # 32 bytes hex, e.g. a sha256 digest
+_HEX_SIG = re.compile(r"^0x[0-9a-fA-F]+$")
+_HEX_ADDR = re.compile(r"^0x[0-9a-fA-F]{40}$")  # 20 bytes hex, an EVM address
+
+
+class BCCCommitment(BaseModel):
+    """
+    The Behavioral Commitment Chain intent-lock object (§4.2). This is the
+    literal, un-wrapped JSON body POSTed to `/v1/bcc/intercept` -- there is
+    no enclosing `{"commitment": ...}` wrapper, because the interface
+    contract's example is a flat object and sibling packages (integrity-sdk,
+    integrity-cli) are being built against that flat shape.
+    """
+
+    agent_id: str = Field(..., description="did:integrity:<hex-pubkey-fingerprint>")
+    intent_type: str = Field(..., min_length=1, max_length=256)
+    intended_state_hash: str = Field(..., description="0x-prefixed sha256 hex digest of the canonical intent payload")
+    nonce: int = Field(..., ge=0, description="monotonic per-agent integer")
+    timestamp: int = Field(..., gt=0, description="unix ms")
+    signature: str = Field(..., description="0x-prefixed hex Ed25519 signature over the canonical JSON of the other fields")
+
+    # --- BAA-vertical extension (NOT yet in the frozen §4.2 shape) ---------
+    # `contracts/`'s real `SmartBAAFactory.isBAAActive` takes TWO addresses --
+    # `coveredEntity` (the hospital/healthcare org) and `businessAssociate`
+    # (the agent) -- not one. §4.2 only ever gave us an agent identity, with
+    # no way to say *which* covered entity a healthcare-vertical commitment
+    # (e.g. `EMR_WRITE`, `CLINICAL_DATA_ACCESS` -- see policies/bcc.rego's
+    # `clinical_intent_types`) is claiming access against. This field closes
+    # that gap: it's optional so non-healthcare intent types (`payment`,
+    # `contract_call`, ...) can omit it entirely, but any commitment whose
+    # `intent_type` causes OPA to set `requires_baa := true` MUST carry it,
+    # or app/baa.py's `check_baa_status` fails closed with CANNOT_VERIFY (see
+    # that module for why an unset covered entity is never treated as
+    # "compliant"). Deliberately an address, not a DID -- unlike agents,
+    # covered entities are registered directly by EVM address in
+    # `contracts/src/shield/CoveredEntityRegistry.sol`, there is no DID layer
+    # for them.
+    covered_entity_address: str | None = Field(
+        default=None,
+        description="0x-prefixed EVM address of the covered entity (hospital) this data_access/healthcare intent is against; required whenever OPA flags requires_baa",
+    )
+
+    # --- Self-certifying public key (reconciles the DID-fingerprint scheme) ---
+    # integrity-sdk's DID fingerprint is `sha256(pubkey)`, NOT the raw Ed25519
+    # public key (this module originally assumed the latter — see canonical.py's
+    # INTEGRATION FLAG). A sha256 digest can't be turned back into the key it
+    # hashed, so a verifier holding only `agent_id` cannot recover the pubkey to
+    # check the signature. The agent therefore carries its own public key here,
+    # in the same multibase form as the DID document's `publicKeyMultibase`
+    # (§4.1). It's safe to trust a *carried* key because verification binds it:
+    # `sha256(decoded_pubkey)` must equal the DID's fingerprint, so a swapped key
+    # fails before the signature is ever checked (see canonical.py).
+    agent_public_key: str = Field(
+        ...,
+        description="Agent's Ed25519 public key, multibase (z-base58btc, multicodec ed25519-pub) — must hash to agent_id's fingerprint",
+    )
+
+    @field_validator("covered_entity_address")
+    @classmethod
+    def _covered_entity_address_shape(cls, v: str | None) -> str | None:
+        if v is not None and not _HEX_ADDR.match(v):
+            raise ValueError("covered_entity_address must be 0x-prefixed 20-byte hex (an EVM address)")
+        return v
+
+    @field_validator("agent_id")
+    @classmethod
+    def _agent_id_shape(cls, v: str) -> str:
+        if not v.startswith("did:integrity:"):
+            raise ValueError("agent_id must be a did:integrity:<fingerprint> DID")
+        fingerprint = v.removeprefix("did:integrity:")
+        if not fingerprint:
+            raise ValueError("agent_id DID is missing its fingerprint")
+        return v
+
+    @field_validator("intended_state_hash")
+    @classmethod
+    def _hash_shape(cls, v: str) -> str:
+        if not _HEX32.match(v):
+            raise ValueError("intended_state_hash must be 0x-prefixed 32-byte hex (sha256 digest)")
+        return v
+
+    @field_validator("signature")
+    @classmethod
+    def _sig_shape(cls, v: str) -> str:
+        if not _HEX_SIG.match(v) or len(v) != 2 + 128:  # 0x + 64 bytes hex for Ed25519
+            raise ValueError("signature must be 0x-prefixed 64-byte hex (Ed25519)")
+        return v
+
+
+class BCCInterceptResponse(BaseModel):
+    authorized: bool
+    reason: str | None = None
+    # Only present when authorized=True: an opaque token proving this
+    # middleware evaluated and approved the commitment, plus which pending
+    # merkle batch slot it landed in (useful for callers to later look up
+    # the anchoring transaction once the batch flushes).
+    verification_token: str | None = None
+    batch_index: int | None = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    opa_reachable: bool
+    chain_reachable: bool
+    pending_batch_size: int

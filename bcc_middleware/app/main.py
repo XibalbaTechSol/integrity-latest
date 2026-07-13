@@ -1,0 +1,217 @@
+"""
+BCC Middleware -- pre-execution policy gating ("Behavioral Commitment Chain").
+
+Request flow for POST /v1/bcc/intercept, in order (see inline comments for
+why each step is where it is):
+
+  0. Schema validation (FastAPI/pydantic, via BCCCommitment).
+  1. Circuit breaker check -- cheap, no I/O, so it goes first.
+  2. Signature verification -- if we can't trust the commitment came from
+     `agent_id`, nothing downstream matters.
+  3. Nonce replay check.
+  4. Freshness (timestamp) check.
+  5. OPA policy evaluation -- FAIL CLOSED if OPA is unreachable/erroring.
+  6. On-chain BAA check, only if OPA flagged `requires_baa` -- FAIL CLOSED
+     if we can't positively confirm an active BAA.
+  7. Merkle batch admission + best-effort anchoring (not a gate -- see
+     app/anchor.py).
+
+Every deny path records *why* in the response `reason` field with a
+consistent `SOME_CODE: detail` shape so operators/tests can pattern-match
+on the failure category.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import time
+
+from fastapi import FastAPI
+
+from app.baa import BAAStatus, check_baa_status
+from app.canonical import SignatureVerificationError, verify_commitment_signature
+from app.chain import resolve_verification_tier
+from app.circuit_breaker import AgentCircuitBreaker
+from app.config import Settings, settings as default_settings
+from app.merkle import MerkleBatcher
+from app.nonce_store import NonceStore
+from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
+from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse
+from app import anchor as anchor_module
+from app import opa_client
+
+logger = logging.getLogger("bcc_middleware")
+
+app = FastAPI(title="BCC Middleware", version="3.0.0")
+
+# Process-local state. See nonce_store.py / circuit_breaker.py docstrings
+# for why in-memory is an accepted scope limitation for this service today
+# (single replica dev/demo topology) rather than a correctness bug.
+circuit_breaker = AgentCircuitBreaker(
+    violation_threshold=default_settings.circuit_breaker_violation_threshold,
+    lockout_duration_seconds=default_settings.circuit_breaker_lockout_seconds,
+)
+nonce_store = NonceStore()
+batcher = MerkleBatcher(batch_size=default_settings.merkle_batch_size)
+
+
+def _deny(reason: str) -> BCCInterceptResponse:
+    return BCCInterceptResponse(authorized=False, reason=reason)
+
+
+def _flush_and_anchor(settings: Settings) -> None:
+    """
+    Flushes the pending batch (if full) and best-effort submits it on-chain.
+    Anchoring failure is logged, not raised -- see app/anchor.py docstring
+    for why this is intentionally not a gate on the caller's response.
+    """
+    if not batcher.is_full():
+        return
+    flushed = batcher.flush()
+    if flushed is None:
+        return
+    _root, leaves = flushed
+    # Anchor per-agent: each agent's leaves go to that agent's own StateAnchor
+    # (StateAnchor is a per-agent primitive now — see anchor.anchor_batch_per_agent).
+    anchor_module.anchor_batch_per_agent(settings, leaves)
+
+
+async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInterceptResponse:
+    """
+    Core interception logic, factored out of the route handler so tests can
+    call it directly (and so a future non-HTTP entrypoint, e.g. a queue
+    consumer, could reuse it).
+    """
+    agent_id = commitment.agent_id
+
+    # --- 1. Circuit breaker -------------------------------------------------
+    if circuit_breaker.is_locked_out(agent_id):
+        remaining = int(circuit_breaker.lockout_remaining_seconds(agent_id))
+        return _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations")
+
+    # --- 2. Signature verification ------------------------------------------
+    # An invalid signature means we cannot trust `agent_id` authored this
+    # commitment at all -- this DOES count as an agent-attributable
+    # violation (either the agent is misbehaving, or someone is attempting
+    # to forge commitments on its behalf; either way, lock it down).
+    try:
+        verify_commitment_signature(commitment)
+    except SignatureVerificationError as exc:
+        circuit_breaker.record_violation(agent_id)
+        return _deny(f"BCC_INVALID_SIGNATURE: {exc}")
+
+    # --- 3. Replay protection ------------------------------------------------
+    if not nonce_store.check_and_record(agent_id, commitment.nonce):
+        circuit_breaker.record_violation(agent_id)
+        return _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent")
+
+    # --- 4. Freshness ----------------------------------------------------------
+    age_ms = (time.time() * 1000) - commitment.timestamp
+    if age_ms > settings.max_commitment_age_ms:
+        circuit_breaker.record_violation(agent_id)
+        return _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms")
+    if age_ms < -settings.max_commitment_age_ms:
+        # Clock skew / a timestamp claiming to be from the future beyond our
+        # tolerance is just as suspicious as a stale one.
+        circuit_breaker.record_violation(agent_id)
+        return _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future")
+
+    # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
+    # verification_tier is resolved unconditionally (not just for intent_types the
+    # policy happens to gate) because Rego needs it as an input field to evaluate
+    # `min_tier_by_intent_type` against -- see chain.resolve_verification_tier's
+    # docstring for why an unresolvable tier fails to 0 rather than failing the
+    # whole request closed.
+    opa_input = {
+        "agent_id": commitment.agent_id,
+        "intent_type": commitment.intent_type,
+        "intended_state_hash": commitment.intended_state_hash,
+        "nonce": commitment.nonce,
+        "timestamp": commitment.timestamp,
+        "verification_tier": resolve_verification_tier(commitment.agent_id, oracle_url=settings.oracle_url),
+    }
+    try:
+        decision = await opa_evaluate(settings, opa_input)
+    except OPAUnavailableError as exc:
+        # Infra failure, NOT an agent violation -- do not trip the circuit
+        # breaker (see circuit_breaker.py docstring). Still deny: this is
+        # the fail-closed behavior the interface contract requires.
+        logger.error("OPA unavailable, failing closed: %s", exc)
+        return _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}")
+
+    if not decision.allow:
+        circuit_breaker.record_violation(agent_id)
+        reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
+        return _deny(f"OPA_REJECTION: {reasons}")
+
+    # --- 6. On-chain BAA check (FAIL CLOSED), only for healthcare-vertical intents ---
+    # `commitment.covered_entity_address` (schemas.py) names WHICH covered
+    # entity (hospital) this healthcare-vertical commitment is against --
+    # the real on-chain isBAAActive(coveredEntity, businessAssociate) call
+    # (app/baa.py) is keyed on that pair, not on the agent alone. If it's
+    # unset here, check_baa_status fails closed with CANNOT_VERIFY rather
+    # than guessing or skipping the check.
+    if decision.requires_baa:
+        status, detail = check_baa_status(settings, agent_id, commitment.covered_entity_address)
+        if status is not BAAStatus.ACTIVE:
+            # Both "definitively inactive" and "cannot verify" deny -- an
+            # unverifiable BAA must never be treated as compliant.
+            circuit_breaker.record_violation(agent_id)
+            code = "BAA_INACTIVE" if status is BAAStatus.INACTIVE else "BAA_CANNOT_VERIFY"
+            return _deny(f"{code}: {detail}")
+
+    # --- 7. Approved: admit to the merkle batch, issue a verification token ---
+    batch_index = batcher.add(commitment)
+    _flush_and_anchor(settings)
+
+    token_material = f"{commitment.agent_id}|{commitment.nonce}|{commitment.intended_state_hash}|{time.time()}"
+    token = hashlib.sha256(token_material.encode()).hexdigest()
+    return BCCInterceptResponse(authorized=True, verification_token=token, batch_index=batch_index)
+
+
+@app.post("/v1/bcc/intercept", response_model=BCCInterceptResponse)
+async def intercept(commitment: BCCCommitment) -> BCCInterceptResponse:
+    return await run_intercept(commitment, default_settings)
+
+
+@app.post("/v1/bcc/anchor/flush")
+async def force_flush() -> dict:
+    """
+    Operational/testing hook: anchor whatever's pending right now instead of
+    waiting for the batch to fill. Not part of the interface contract; only
+    exists so integration tests and operators don't have to send
+    `merkle_batch_size` real commitments to observe an anchoring transaction.
+    """
+    flushed = batcher.flush()
+    if flushed is None:
+        return {"flushed": False, "detail": "no pending commitments"}
+    root, leaves = flushed
+    # Per-agent anchoring: one StateAnchor tx per distinct agent in the batch.
+    results = anchor_module.anchor_batch_per_agent(default_settings, leaves)
+    return {
+        "flushed": True,
+        "root": f"0x{root.hex()}",
+        "leaf_count": len(leaves),
+        "agents": {
+            agent_id: {"anchored": r.submitted, "detail": r.detail, "tx_hash": r.tx_hash}
+            for agent_id, r in results.items()
+        },
+    }
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    opa_ok = await opa_client.is_reachable(default_settings)
+    from app.chain import get_w3
+
+    try:
+        chain_ok = get_w3(default_settings.rpc_url).is_connected()
+    except Exception:  # a misconfigured RPC URL shouldn't crash the health check
+        chain_ok = False
+    return HealthResponse(
+        status="online",
+        opa_reachable=opa_ok,
+        chain_reachable=chain_ok,
+        pending_batch_size=batcher.pending_count,
+    )

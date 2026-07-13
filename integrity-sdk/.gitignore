@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Local DID keypairs — never commit private key material.
+.integrity/
+
+# Compiled Noir circuit artifacts (regenerate via `make circuits`).
+circuits/*/target/

@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["scoring-core", "backend"]
+
+# Kept as a two-crate workspace (matching the old prototype's shape) rather than
+# collapsing to a single crate, because the interface contract (docs/INTERFACE_CONTRACT.md
+# §4.3) names `integrity-oracle/scoring-core` specifically as "the only place [the AIS
+# formula] is computed". Keeping it a separate, dependency-free lib crate makes that
+# invariant enforceable (the HTTP/DB/crypto-heavy `backend` crate depends on it, never
+# the reverse) and lets the formula be unit-tested in isolation without spinning up
+# Postgres/Redis/Axum.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"

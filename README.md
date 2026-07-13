@@ -1,0 +1,330 @@
+# Integrity Protocol
+
+**A trust and compliance layer for the agentic economy.** Integrity Protocol
+uses smart contracts and immutable on-chain state to solve two problems no
+purely off-chain system can:
+
+1. **Regulatory compliance** — can a regulator or counterparty verify an AI
+   agent's behavior *after the fact*, without trusting the agent's own word?
+2. **Agent trust** — can one agent (or service) verify another's track record
+   *before* transacting with it?
+
+The protocol's defining architectural choice: **agents own and deploy their own
+identity and reputation contracts.** On registration, an agent's own EVM wallet
+deploys a set of *primitive* contracts that become its self-sovereign on-chain
+identity. Nothing is registered *on behalf of* the agent by a privileged
+factory — the deployment transactions are signed by the agent's own key, so the
+chain itself is cryptographic proof of who controls what.
+
+**Xibalba Shield** — the HIPAA/healthcare vertical — is the flagship proof that
+this works in the most heavily regulated industry there is. It's not a side
+feature; it's the demonstration that makes the rest of the protocol credible.
+
+> This is a from-scratch rewrite of an earlier prototype. Its ground rule, in
+> [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md), is **no silent
+> mocks**: every piece is either real and tested against a real toolchain, or an
+> honestly-documented gap. Read the interface contract before changing any
+> cross-package schema, port, or env var.
+
+---
+
+## Architecture at a glance
+
+```
+                         ┌──────────────────────────────────────────┐
+   agent's own wallet    │  On-chain (EVM / Base Sepolia + anvil)    │
+   signs these deploys ──┼─▶ SovereignAgent   (identity account)     │
+                         │   StateAnchor      (per-agent audit root) │
+   AgentPrimitivesFactory │                                          │
+   clones these ─────────┼─▶ ReputationRegistry ┐                    │
+   (EIP-1167 minimal      │   Slasher            │  5 clones, each   │
+    proxies)              │   VerifierRegistry   │  uniquely owned   │
+                          │   ComplianceGate     │  by the agent     │
+                          │   AgentProfile       ┘                    │
+                         └───────────▲───────────────────▲──────────┘
+                                     │                    │
+   integrity-sdk / integrity-cli ────┘                    │ resolve + score
+   (self-deploy registration,                             │
+    BCC commitments, telemetry)                    integrity-oracle (Rust/Axum)
+              │                                     (AIS scoring, telemetry
+              │ pre-execution gate                  ingest, on-chain reads)
+              ▼                                            ▲
+      bcc_middleware (FastAPI + OPA) ──── telemetry ───────┘
+      (policy, HIPAA BAA check,             integrity-mvp (React + Python)
+       ZK, Merkle anchoring)                (the one dashboard/landing app +
+                                              its demo scenario engine)
+```
+
+`bcc_middleware` and `integrity-oracle` together form one trust domain — the
+pre-execution gate (before an agent acts) and the telemetry/scoring backend
+(after an agent acts, plus all on-chain reads) — see
+[`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §6.10.
+
+### The 7 agent primitives
+
+Every agent, at registration, comes to own seven contracts. Two are deployed
+**directly by the agent's own wallet** (so the deploy transaction proves
+self-sovereign control); five are cheap **EIP-1167 minimal-proxy clones** of
+shared implementation contracts (each clone is still uniquely owned and
+controlled by that agent).
+
+| # | Primitive | Deploy | Purpose |
+|---|---|---|---|
+| 1 | `SovereignAgent` | direct | The agent's account contract — DID, cached AIS, `execute`, controller rotation |
+| 2 | `StateAnchor` | direct | The agent's own tamper-evident Merkle-root anchor for its telemetry |
+| 3 | `ReputationRegistry` | clone | Per-agent AIS ledger + ZK-boost bookkeeping |
+| 4 | `Slasher` | clone | Per-agent $ITK stake / dispute-gated slashing vault |
+| 5 | `VerifierRegistry` | clone | Per-agent versioned pointer to the ZK verifier it trusts |
+| 6 | `ComplianceGate` | clone | Per-agent regulated-industry declaration + live Shield/HIPAA check |
+| 7 | `AgentProfile` | clone | Per-agent domain-membership + metadata pointer |
+
+**Call-routing rule:** every clone's admin role is granted to the agent's own
+`SovereignAgent` *contract* address, never its raw EOA. All post-registration
+state changes route through `SovereignAgent.execute(...)`. See
+[`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §6 for the full
+convention and the one bootstrap exception.
+
+---
+
+## Packages
+
+| Package | Stack | Purpose | Status |
+|---|---|---|---|
+| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, $ITK, Shield stack, ZK verifier, cross-chain reputation bridge | ✅ 165 tests; deployed to Base Sepolia (XNS/CCIP bridge not yet broadcast — see below) |
+| [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
+| [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, AIS computation, on-chain reads | ✅ 37 lib tests + real e2e |
+| [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, telemetry (OTel + MLflow) | ✅ 46 tests |
+| [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, on-chain registration, BCC intercept | ✅ 49 tests |
+| [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | ✅ 49 tests + 12 OPA |
+| [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts, auth, API keys, agent ownership — strictly non-chain | 🚧 in progress |
+| [`integrity-mvp/`](integrity-mvp/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Shield — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
+
+---
+
+## The Agent Integrity Score (AIS)
+
+The protocol's trust metric. Computed in exactly one place —
+`integrity-oracle/scoring-core` — and read by everyone else via the oracle's
+HTTP API, never recomputed:
+
+```
+AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+```
+
+Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (sum to 1.0); `ZK_boost`
+is `1.15` when a real Barretenberg proof was verified for the reporting period,
+else `1.0`. The four component scores come from an agent's telemetry — the SDK
+derives first-pass signals from OpenTelemetry/MLflow spans; the oracle owns the
+final formula. See [`docs/wiki/concepts/ais.md`](docs/wiki/concepts/ais.md).
+
+---
+
+## Vision & long-term roadmap
+
+**Thesis:** AI agents should be able to hold their own identity, own and deploy
+their own smart contracts, and act as accountable economic participants —
+"Economic Sovereigns," not passive tools running under someone else's
+account. Integrity Protocol is the trust layer that makes delegating money
+and regulated actions to an autonomous agent mathematically safe: every claim
+an agent makes about its own behavior is either independently verified
+on-chain, or honestly labeled as unverified. Xibalba Shield (healthcare) is
+the flagship proof this holds in the most heavily regulated industry there
+is; the multi-vertical MVP (markets, capital allocation, wallet) proves the
+same mechanism generalizes to any domain where trust has economic value.
+
+This section distinguishes, deliberately, **what is real and running today**
+from **what is the long-term architectural direction** — per this repo's
+"no silent mocks" rule, nothing below in the roadmap column is implemented
+yet, and no code should ever claim otherwise.
+
+### Identity & hardware trust
+
+| Built today | Long-term roadmap |
+|---|---|
+| Software-held secp256k1/Ed25519 keypairs (encrypted local keystore) | Hardware-bound identity: keys tethered to TEE/SGX enclaves or an HSM (AWS KMS, FIPS 140-2 Level 3), so a key can't be extracted even by whoever controls the host |
+| `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents | Remote TEE attestation (AWS Nitro / Intel SGX) proving an agent's key is physically tethered to a verified Controller |
+| Agent self-registers all 7 primitives with its own signature as proof of control, and can self-service claim a human-readable XNS handle (`XibalbaNameService.sol`, first-come-first-served, no admin in the critical path) | Direct handle transfer between agents (today: release + separate re-claim by the new owner) and expiry/renewal semantics |
+
+### Verification ladder (roadmap — not yet gating anything)
+
+The long-term design ties an agent's AIS *ceiling* (not just its measured
+score) to how strongly its identity is verified, so a freshly-created,
+unverified agent can never simply out-score a hardware-attested one:
+
+| Tier | Verification | AIS ceiling | Status |
+|---|---|---|---|
+| 1 — Sovereign | Proof-of-possession of a software key (what every agent has today) | 600 | Effectively where every agent sits now — **not yet enforced as a ceiling** |
+| 2 — Linked | DNS TXT record or social-account attestation | 850 | Not built |
+| 3 — Institutional | Remote TEE attestation + institutional audit | 1000 (uncapped credit) | Not built |
+| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Planned in `integrity-userapi`'s API-key issuance |
+
+### Data, telemetry & PHI safety
+
+The SDK is a **local metrology apparatus**: it measures agent behavior (entropy,
+grounding, sacrifice signals) and forwards only what the oracle needs — never
+raw reasoning content by default in a regulated vertical. The precise
+architecture:
+
+- **`Redactor`** (`integrity_sdk/security/`, alongside the existing
+  `attestation.py`/`vault.py`) — performs client-side PII/PHI/secret masking
+  on span content *before anything leaves the agent's process*. This is
+  targeted masking (patient identifiers, secrets, credentials — the specific
+  entities HIPAA/PCI care about), not a blanket delete: the goal is a trace
+  that's safe to store AND still useful for downstream evaluation.
+- **LLM-as-judge evaluation runs oracle-side**, as part of the backend's
+  Evaluation Framework, operating on the already-redacted trace the SDK sent
+  — never on raw content, and never client-side. Its rubric ("Xibalba
+  Solutions defines") is not specified in this repo yet; the ingestion
+  schema/hook is being built ahead of the rubric itself.
+- **Dual-mode storage** (roadmap, not yet built as a toggle): Mode 1
+  (transparent) stores full traces for standard, non-regulated use —
+  developer debugging visibility is the priority. Mode 2 (Sovereign
+  ZK-Mode, for Shield/healthcare and any PHI-adjacent vertical) never lets
+  raw content leave local hardware at all — only a hash and a ZK proof of
+  correct measurement leave the agent's process.
+- **Redaction gate is closed everywhere it needs to be.**
+  `integrations/openai_integrity.py` and `integrations/langchain_callback.py`
+  both call `redact_text(...)` on prompt/completion span content before it
+  ever leaves the agent's process — that was fixed a while back and is no
+  longer an open gap. The real remaining gap, closed 2026-07-11: the SDK's
+  own general-purpose, documented tracing API
+  (`telemetry/tracing.py`'s `trace_run`/`traceable`/`client.traceable(...)`)
+  captured raw function arguments/return values with **no** redaction. A
+  `_redact_value` helper is now applied in `TraceRun.set_outputs` and
+  `_capture_inputs`, so that path is redaction-gated the same as the
+  integrations above.
+- **Oracle never touches raw PHI, full stop** — enforced with defense in
+  depth: the SDK-side `Redactor` is the primary control, and
+  `/v1/telemetry/ingest` independently rejects any payload carrying a
+  recognized raw-content key as a backstop against a future SDK regression.
+
+### Decentralization path
+
+Today, Xibalba Solutions LLC operates the oracle, the demo resolver, and
+policy defaults as a single operator — appropriate for a testnet MVP, not
+the end state:
+
+1. **Phase 1 — Human-in-the-loop (current).** Xibalba Solutions manages OPA
+   policy defaults, the market `RESOLVER_ROLE`, and protocol upgrades
+   directly.
+2. **Phase 2 — Hybrid council (roadmap).** Governance shared between human
+   stakeholders and a council of Tier-3 Institutional agents that sustain a
+   950+ AIS over a sustained period — the same mechanism this MVP's
+   `IntegrityMarket.RESOLVER_ROLE` is a deliberately-labeled stand-in for
+   (see `contracts/src/markets/IntegrityMarket.sol`'s NatSpec): a syndicate
+   of high-AIS agents, not one operator key, eventually resolves markets.
+3. **Phase 3 — Protocol DAO (roadmap).** Full on-chain governance: `$ITK`
+   stakers and high-reputation agents vote on protocol parameter changes.
+4. **Cross-chain reputation (roadmap).** `CCIPReputationBridge.sol` exists
+   in `contracts/` but is explicitly unwired (see its own NatSpec) —
+   synchronizing AIS across Base/Arbitrum/Ethereum is a real future step,
+   not a current capability.
+5. **Gas abstraction (roadmap).** An ERC-4337 verifying paymaster
+   (sponsoring gas for agents above an AIS threshold, so an agent never
+   needs to hold native ETH to participate) is a planned simplification of
+   today's direct-funding faucet model (`chain.fund_agent_wallet`) — not
+   built yet.
+
+### Advanced primitives (roadmap, explicitly out of scope for the current MVP)
+
+Named here so they're tracked, not forgotten, and so nothing in this repo
+should be mistaken for having built them:
+
+- **A2A negotiation protocol** — P2P capability broadcast + bid negotiation
+  over a gossip layer (libp2p/Waku), landing in a signed on-chain deal.
+  Today's `A2ACapitalPool.sol` is a simpler, direct allocation primitive —
+  not this.
+- **ZK-ML model-inference verification** — proving an agent's output came
+  from a *specific, authorized* model without revealing weights, via a
+  dedicated Noir inference circuit + `ZKModelRegistry.sol`. Today's ZK layer
+  (`integrity-zkp/`, `UltraPlonkVerifier.sol`) proves telemetry/attestation
+  claims, not model-inference correctness.
+- **Institutional credit & AIS-collateralized lending** — reputation-backed
+  ITK credit lines (this is `integrity-framework/`'s originally-scoped
+  concept, §12 of `docs/INTERFACE_CONTRACT.md`, not yet built).
+- **Decentralized oracle validator network** — today's oracle is a single
+  Rust service; the long-term design redistributes AIS computation and
+  ZK-proof verification across redundant, independently-operated nodes
+  reaching consensus on Merkle anchors.
+
+### Full source vision documents
+
+The complete, unabridged product/architecture vision (including sections not
+yet reflected in this repo) lives outside the codebase — ask before assuming
+any of it is implemented; treat it as intent, not documentation of current
+state.
+
+---
+
+## Local development
+
+```bash
+make setup     # install per-package dependencies
+make chain     # start a local anvil chain + run contracts/script/Deploy.s.sol
+make sync-abis # extract trimmed contract ABIs into the SDK/CLI
+make up        # docker-compose: postgres, redis, opa, oracle, bcc middleware, dashboard
+make test      # run every package's test suite
+make test-e2e  # real-browser (Playwright) E2E against a real, freshly-booted stack
+```
+
+Each package has its own `README.md` with package-specific detail and its own
+test suite. The toolchain (Foundry, Rust, Noir/Barretenberg, OPA, Node, Python)
+is pinned in [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §1. See
+[`docs/TESTING.md`](docs/TESTING.md) for the full test-pyramid rationale — what
+each layer covers, why `make test-e2e` is separate from `make test`, and the
+honest current gap (no hosted CI; this repo has no git remote yet).
+
+### Registering an agent (the self-sovereign flow)
+
+```python
+from integrity_sdk import registration
+
+# Deploys the agent's 2 direct contracts + 5 clones, funds its wallet, mints
+# testnet ITK, and registers it — all signed by the agent's own EVM key.
+reg = registration.register_agent(
+    "clinical-assistant-01",
+    domain_name="healthcare.integrity",
+    compliance_vertical="healthcare",
+)
+print(reg.sovereign_agent, reg.compliance_gate)
+```
+
+Requires `FUNDER_PRIVATE_KEY` (a testnet faucet wallet that seeds the agent's
+new wallet with gas + ITK) and `INTEGRITY_WALLET_PASSWORD` (encrypts the agent's
+EVM keystore). See [`integrity-sdk/README.md`](integrity-sdk/README.md).
+
+---
+
+## Live deployment (Base Sepolia, chainId 84532)
+
+The protocol genesis is deployed and verified on Base Sepolia. Full record in
+`deployments.baseSepolia.json`. Key singletons:
+
+| Contract | Address |
+|---|---|
+| `XibalbaAgentRegistry` | [`0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`](https://sepolia.basescan.org/address/0x72e21e44AdD6d6e7CAa02eaedF078630afC40819) |
+| `AgentPrimitivesFactory` | [`0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`](https://sepolia.basescan.org/address/0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e) |
+| `IntegrityToken` ($ITK) | [`0x0E87D408732BeC3d3997d9eCE2E20A6679C35655`](https://sepolia.basescan.org/address/0x0E87D408732BeC3d3997d9eCE2E20A6679C35655) |
+| `DomainRegistry` | [`0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0`](https://sepolia.basescan.org/address/0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0) |
+| `CoveredEntityRegistry` (Shield) | [`0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07`](https://sepolia.basescan.org/address/0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07) |
+| `SmartBAAFactory` (Shield) | [`0xf791059A9E77734f3fd7dffC1ca35728547608eb`](https://sepolia.basescan.org/address/0xf791059A9E77734f3fd7dffC1ca35728547608eb) |
+
+Per-agent primitive addresses are **not** in the static deployments file — they
+are resolved live from `XibalbaAgentRegistry` on-chain (and cached by the
+oracle). See [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §6.
+
+---
+
+## Documentation
+
+- **[`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md)** — the single
+  source of truth for cross-package schemas, ports, env vars, the 7-primitive
+  architecture, the registration sequence, and the BCC/AIS/Merkle conventions.
+- **[`docs/wiki/`](docs/wiki/)** — the compiled knowledge base (entity pages per
+  package, concept pages for the protocols). Governed by a strict
+  no-aspirational-content rule.
+- **[`docs/design/`](docs/design/)** — the dashboard design mockups.
+
+## License
+
+MIT.

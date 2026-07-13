@@ -1,0 +1,79 @@
+services:
+  # timescale/timescaledb, not plain postgres: integrity-oracle's migration 0004
+  # (see integrity-oracle/backend/migrations/0004_timescale_and_otel_spans.sql) runs
+  # `CREATE EXTENSION timescaledb` and converts `otel_spans` into a hypertable for the
+  # real OTLP receiver's storage (PRODUCTION_GAPS.md §1). `timescale/timescaledb` images
+  # are themselves Postgres (same wire protocol/data directory layout as postgres:16),
+  # just with the extension preinstalled -- a drop-in replacement, not a second database
+  # engine. `userapi-postgres` below stays plain `postgres:16-alpine`, unmodified: it's a
+  # separate trust domain that never touches oracle telemetry (§6.10/§13).
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: integrity
+      POSTGRES_USER: integrity
+      POSTGRES_PASSWORD: integrity_dev_only
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  opa:
+    image: openpolicyagent/opa:1.1.0
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    volumes: ["./bcc_middleware/policies:/policies:ro"]
+    ports: ["8181:8181"]
+
+  oracle-backend:
+    build: ./integrity-oracle
+    depends_on: [postgres, redis]
+    environment:
+      DATABASE_URL: postgres://integrity:integrity_dev_only@postgres:5432/integrity
+      REDIS_URL: redis://redis:6379
+      RPC_URL: ${RPC_URL:-http://host.docker.internal:8545}
+      OTLP_GRPC_ADDR: 0.0.0.0:4317
+    ports: ["8080:8080", "4317:4317"]
+
+  bcc-middleware:
+    build: ./bcc_middleware
+    depends_on: [opa, oracle-backend]
+    environment:
+      OPA_URL: http://opa:8181
+      ORACLE_URL: http://oracle-backend:8080
+    ports: ["8000:8000"]
+
+  dashboard:
+    build: ./integrity-mvp
+    depends_on: [oracle-backend, bcc-middleware]
+    environment:
+      VITE_ORACLE_URL: http://localhost:8080
+      VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
+      VITE_USERAPI_URL: http://localhost:8090
+      VITE_CHAIN_ID: "84532"
+    ports: ["5173:5173"]
+
+  # Separate Postgres instance/trust-domain from `postgres` above (which is
+  # integrity-oracle's) -- see docs/INTERFACE_CONTRACT.md §6.10 and §13:
+  # integrity-userapi never shares a database with the oracle, by design.
+  userapi-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: integrity_userapi
+      POSTGRES_USER: integrity
+      POSTGRES_PASSWORD: integrity_dev_only
+    ports: ["5435:5432"]
+    volumes: ["userapi_pgdata:/var/lib/postgresql/data"]
+
+  userapi:
+    build: ./integrity-userapi
+    depends_on: [userapi-postgres, oracle-backend]
+    environment:
+      DATABASE_URL: postgres://integrity:integrity_dev_only@userapi-postgres:5432/integrity_userapi
+      ORACLE_URL: http://oracle-backend:8080
+    ports: ["8090:8090"]
+
+volumes:
+  pgdata:
+  userapi_pgdata:

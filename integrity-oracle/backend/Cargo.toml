@@ -1,0 +1,73 @@
+[package]
+name = "backend"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "oracle-backend"
+path = "src/main.rs"
+
+[dependencies]
+scoring-core = { path = "../scoring-core" }
+
+axum = { version = "0.8", features = ["json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid", "json"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+thiserror = "2"
+anyhow = "1"
+
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# --- crypto ---
+# Ed25519 signature verification for DID-based agent telemetry signing (§4.1/§4.2).
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+# secp256k1 recovery for EIP-191 ("personal_sign") signature verification, used when
+# an agent is registered with an Ethereum address rather than (or in addition to) an
+# Ed25519 DID key.
+k256 = { version = "0.13", features = ["ecdsa"] }
+# keccak256 for the Merkle tree (must match OpenZeppelin's convention on-chain, §4.4)
+# and for EIP-191 message hashing.
+sha3 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+# Multibase (z-prefixed base58btc) decoding for Ed25519VerificationKey2020
+# `publicKeyMultibase` values in DID documents (§4.1).
+bs58 = "0.5"
+
+async-trait = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Read-only on-chain client (chain.rs): resolves an agent's 7-primitive PrimitiveSet
+# from XibalbaAgentRegistry and reads ReputationRegistry/ComplianceGate state. `ethers-rs`
+# is deprecated/maintenance-mode as of this writing; alloy is its actively maintained
+# successor and what Foundry itself (forge/anvil/cast, already on PATH per the interface
+# contract) is built on. Only the `provider`/`contract`/`rpc-types` machinery is needed —
+# this phase never signs or submits transactions, so no wallet/signer features.
+alloy = { version = "2", features = ["full"] }
+# Parsing the RPC URL string into the `Url` type alloy's `connect_http` wants.
+url = "2"
+
+# Concurrent on-chain reads for GET /v1/markets (batch dozens of per-market view calls
+# instead of looping serially) and the leaderboard/wallet handlers.
+futures = "0.3"
+# Defense-in-depth PHI/PII/secret backstop on POST /v1/telemetry/ingest — mirrors
+# integrity-sdk/integrity_sdk/security/redactor.py's patterns (see src/phi.rs).
+regex = "1"
+utoipa = { version = "5.5.0", features = ["chrono", "uuid", "decimal", "yaml"] }
+tonic = "0.14"
+prost = "0.14"
+opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic", "trace", "metrics"] }
+tokio-stream = { version = "0.1.18", features = ["sync"] }

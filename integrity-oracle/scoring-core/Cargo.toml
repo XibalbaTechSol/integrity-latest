@@ -1,0 +1,10 @@
+[package]
+name = "scoring-core"
+version.workspace = true
+edition.workspace = true
+
+# Deliberately dependency-free (beyond serde for the wire type): this crate is the
+# single source of truth for the AIS formula and must be trivially auditable and
+# fast to unit-test, per docs/INTERFACE_CONTRACT.md §4.3.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

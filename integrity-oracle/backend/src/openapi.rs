@@ -1,0 +1,79 @@
+//! Generates `spec/ais-api/v1/openapi.yaml` from the real handlers/DTOs in `handlers.rs`,
+//! rather than hand-authoring the spec separately (which is exactly how the `agent_id`/
+//! `did` field-name drift documented in `docs/INTERFACE_CONTRACT.md` §6.3 happened once
+//! already for internal package coordination — this generation step is the backstop
+//! against that recurring on the *external* wire surface). Run via `cargo run --bin
+//! gen-openapi` (see `src/bin/gen_openapi.rs`); wire that into CI so the committed
+//! `spec/ais-api/v1/openapi.yaml` can be diffed against a fresh generation to catch
+//! any handler/schema change that wasn't accompanied by a spec regeneration.
+
+use utoipa::OpenApi;
+
+use crate::handlers;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "Integrity Protocol — AIS API",
+        version = "1.0.0",
+        description = "Read-side wire protocol for querying an agent's Agent Integrity \
+            Score (AIS), on-chain primitive addresses, compliance status, market state, \
+            and wallet balances. This is the versioned, externally-supported surface — \
+            /v1/* is additive-only for its lifetime; any field rename, type change, or \
+            removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the \
+            integration guide and spec/ais-api/CHANGELOG.md for the version history.",
+    ),
+    paths(
+        handlers::register_agent,
+        handlers::get_agent,
+        handlers::list_agents,
+        handlers::get_ais,
+        handlers::get_ais_history,
+        handlers::get_telemetry_history,
+        handlers::get_telemetry_volume,
+        handlers::get_otel_volume,
+        handlers::get_traces,
+        handlers::ingest_telemetry,
+        handlers::get_compliance,
+        handlers::list_markets,
+        handlers::get_market,
+        handlers::get_leaderboard,
+        handlers::get_wallet,
+    ),
+    components(schemas(
+        handlers::PrimitiveSetDto,
+        handlers::RegisterAgentRequest,
+        handlers::RegisterAgentResponse,
+        handlers::AgentResponse,
+        handlers::AgentSummary,
+        handlers::AisWeightsSchema,
+        handlers::AisResponse,
+        handlers::AisComponents,
+        handlers::AisHistoryPoint,
+        handlers::VolumeBucket,
+        handlers::OtelVolumeBucket,
+        handlers::DerivedSignals,
+        handlers::ZkProofDto,
+        handlers::JudgeEvaluationDto,
+        handlers::TelemetryIngestRequest,
+        handlers::TelemetryIngestResponse,
+        handlers::ComplianceResponse,
+        handlers::MarketSummaryDto,
+        handlers::PositionDto,
+        handlers::MarketDetailDto,
+        handlers::LeaderboardEntryDto,
+        handlers::WalletPositionDto,
+        handlers::WalletResponse,
+        handlers::TelemetryEventDetailDto,
+        handlers::AgentJudgeEvaluationDto,
+    )),
+    tags(
+        (name = "agents", description = "Agent identity, registration, and on-chain primitive resolution"),
+        (name = "ais", description = "Agent Integrity Score and leaderboard"),
+        (name = "telemetry", description = "Telemetry ingestion (feeds AIS computation)"),
+        (name = "compliance", description = "HIPAA/Shield vertical compliance status"),
+        (name = "markets", description = "IntegrityMarket prediction-market reads"),
+        (name = "wallet", description = "$ITK balance and open market positions"),
+    ),
+)]
+pub struct ApiDoc;

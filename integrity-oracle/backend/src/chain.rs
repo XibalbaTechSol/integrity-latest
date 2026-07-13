@@ -1,0 +1,529 @@
+//! Read-only on-chain client, via `alloy`, for the self-sovereign per-agent primitive
+//! model described in `docs/INTERFACE_CONTRACT.md` §6.
+//!
+//! This is the piece that makes agent registration honest end-to-end: a client POSTing
+//! to `/v1/agent/register` could claim any 7 addresses it likes, but `resolve_primitives`
+//! independently asks `XibalbaAgentRegistry` (the on-chain source of truth, written
+//! atomically and exclusively by `AgentPrimitivesFactory`, §6.3) what it actually
+//! recorded for that DID, and the handler rejects any mismatch. Everything in this module
+//! is a `view`/`pure` call — no wallet, no signing, no transaction submission — per the
+//! interface contract's current phase ("the oracle only ever READS on-chain state").
+//!
+//! Interface fragments below are hand-transcribed from the real, compiled ABIs at
+//! `contracts/out/{XibalbaAgentRegistry,ReputationRegistry,ComplianceGate}.sol/*.json`
+//! (cross-checked field-for-field against `contracts/src/framework/XibalbaAgentRegistry.sol`,
+//! `contracts/src/oracle/ReputationRegistry.sol`, `contracts/src/shield/ComplianceGate.sol`)
+//! rather than generated from the JSON artifact at build time: `sol!`'s `#[sol(rpc)]` over
+//! a hand-written interface produces the exact same ABI-encoding/decoding code as loading
+//! the JSON would, without making this crate's build depend on `contracts/` having been
+//! built first (a real constraint in this monorepo, where `contracts/out/` is `forge
+//! build` output, not something `cargo build` can assume exists in every checkout/CI
+//! environment). If the on-chain interfaces above ever change, this file and the
+//! `contracts/` source must be updated together — there's no build-time check tying them
+//! together, which is a documented gap (see `resolve_primitives`'s doc comment).
+
+use std::path::Path;
+
+use alloy::primitives::{keccak256, Address, B256, U256};
+use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::sol;
+use serde::Deserialize;
+
+sol! {
+    #[sol(rpc)]
+    interface IXibalbaAgentRegistry {
+        struct PrimitiveSet {
+            address sovereignAgent;
+            address stateAnchor;
+            address reputationRegistry;
+            address slasher;
+            address verifierRegistry;
+            address complianceGate;
+            address agentProfile;
+        }
+
+        struct AgentRecord {
+            PrimitiveSet primitives;
+            address controller;
+            bytes32 domainId;
+            uint256 registeredAt;
+            bool exists;
+        }
+
+        function resolveDID(string calldata did) external view returns (AgentRecord memory record);
+        function resolveAgent(address sovereignAgent) external view returns (AgentRecord memory record);
+        function isRegisteredAgent(address sovereignAgent) external view returns (bool);
+    }
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IReputationRegistry {
+        function effectiveScore(address agent) external view returns (uint256);
+        function isZkBoosted(address agent) external view returns (bool);
+    }
+}
+
+sol! {
+    #[sol(rpc)]
+    interface IComplianceGate {
+        function vertical() external view returns (uint8);
+        function isHealthcareCompliant(address coveredEntity) external view returns (bool);
+    }
+}
+
+/// Hand-transcribed from `contracts/src/markets/MarketFactory.sol`. Note there is no
+/// `allMarkets()` full-array getter: `address[] public allMarkets` only auto-generates
+/// an indexed `allMarkets(uint256) returns (address)` getter, so enumerating every
+/// market requires `allMarketsCount()` + a loop/batch over `allMarkets(i)` (see
+/// `ChainClient::all_market_addresses`). `getMarketsByCreator` is the real full-array
+/// getter for the by-creator case (the `marketsByCreator` mapping's auto-getter would
+/// need an index too, same as `allMarkets`).
+sol! {
+    #[sol(rpc)]
+    interface IMarketFactory {
+        function allMarkets(uint256) external view returns (address);
+        function allMarketsCount() external view returns (uint256);
+        function getMarketsByCreator(address creator) external view returns (address[] memory);
+    }
+}
+
+/// Hand-transcribed from `contracts/src/markets/IntegrityMarket.sol`.
+sol! {
+    #[sol(rpc)]
+    interface IIntegrityMarket {
+        struct Position {
+            uint256 amount;
+            uint8 outcomeIndex;
+            bytes32 bccCommitmentHash;
+            bool claimed;
+        }
+
+        function creator() external view returns (address);
+        function question() external view returns (string memory);
+        function outcomeCount() external view returns (uint8);
+        function minAisToEnter() external view returns (uint256);
+        function resolveDeadline() external view returns (uint256);
+        function resolved() external view returns (bool);
+        function winningOutcome() external view returns (uint8);
+        function totalStaked() external view returns (uint256);
+        function outcomeStaked(uint8) external view returns (uint256);
+        function getPosition(address agent) external view returns (Position memory);
+        function wasCorrect(address agent) external view returns (bool);
+    }
+}
+
+/// Minimal ERC-20 read surface — just enough for `GET /v1/agent/{id}/wallet`'s real
+/// `IntegrityToken.balanceOf` read.
+sol! {
+    #[sol(rpc)]
+    interface IERC20Balance {
+        function balanceOf(address account) external view returns (uint256);
+    }
+}
+
+/// Mirrors `IXibalbaAgentRegistry.PrimitiveSet` as a plain Rust struct (rather than
+/// exposing the `sol!`-generated type at this module's public boundary) so callers
+/// elsewhere in the crate (handlers, db serialization) don't need to depend on alloy's
+/// generated types directly — this is the crate-internal seam between "on-chain shape"
+/// and "everything else".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PrimitiveSet {
+    pub sovereign_agent: Address,
+    pub state_anchor: Address,
+    pub reputation_registry: Address,
+    pub slasher: Address,
+    pub verifier_registry: Address,
+    pub compliance_gate: Address,
+    pub agent_profile: Address,
+}
+
+impl From<IXibalbaAgentRegistry::PrimitiveSet> for PrimitiveSet {
+    fn from(p: IXibalbaAgentRegistry::PrimitiveSet) -> Self {
+        Self {
+            sovereign_agent: p.sovereignAgent,
+            state_anchor: p.stateAnchor,
+            reputation_registry: p.reputationRegistry,
+            slasher: p.slasher,
+            verifier_registry: p.verifierRegistry,
+            compliance_gate: p.complianceGate,
+            agent_profile: p.agentProfile,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentRecord {
+    pub primitives: PrimitiveSet,
+    pub controller: Address,
+    pub domain_id: B256,
+    pub registered_at: U256,
+}
+
+/// Plain-Rust mirror of an `IntegrityMarket` clone's on-chain view state, as read live
+/// by `ChainClient::read_market` (§6.9). `outcome_staked[i]` is the pari-mutuel pool
+/// for outcome `i` (cheap, bounded by `outcome_count` public-getter reads) — real
+/// per-holder position enumeration would require indexing `PositionEntered` events,
+/// which this pass does not build (see `entities/integrity-oracle.md`).
+#[derive(Debug, Clone)]
+pub struct MarketDetail {
+    pub address: Address,
+    pub creator: Address,
+    pub question: String,
+    pub outcome_count: u8,
+    pub min_ais_to_enter: U256,
+    pub resolve_deadline: U256,
+    pub resolved: bool,
+    pub winning_outcome: u8,
+    pub total_staked: U256,
+    pub outcome_staked: Vec<U256>,
+}
+
+/// Plain-Rust mirror of `IIntegrityMarket::Position`.
+#[derive(Debug, Clone, Copy)]
+pub struct MarketPosition {
+    pub amount: U256,
+    pub outcome_index: u8,
+    pub bcc_commitment_hash: B256,
+    pub claimed: bool,
+}
+
+impl From<IIntegrityMarket::Position> for MarketPosition {
+    fn from(p: IIntegrityMarket::Position) -> Self {
+        Self {
+            amount: p.amount,
+            outcome_index: p.outcomeIndex,
+            bcc_commitment_hash: p.bccCommitmentHash,
+            claimed: p.claimed,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ChainError {
+    #[error("failed to read/parse deployments file {path}: {source}")]
+    DeploymentsFile {
+        path: String,
+        source: anyhow::Error,
+    },
+    #[error("no agent registered for DID {0}")]
+    UnknownDid(String),
+    #[error("no agent registered for SovereignAgent address {0}")]
+    UnknownAgent(Address),
+    #[error("required singleton '{0}' is missing from the deployments file (not deployed on this network)")]
+    MissingSingleton(&'static str),
+    #[error("on-chain call failed: {0}")]
+    Rpc(#[from] alloy::contract::Error),
+    #[error("RPC transport error: {0}")]
+    Transport(#[from] alloy::transports::RpcError<alloy::transports::TransportErrorKind>),
+}
+
+/// Deserializes exactly the subset of `deployments.local.json` (§6.6) this client needs:
+/// `singletons.XibalbaAgentRegistry`. The full file has more sections (`cloneTemplates`,
+/// `protocolAddresses`, `domains`) that this phase's read-only client has no use for, so
+/// they're intentionally not modeled here — `serde(deny_unknown_fields)` is deliberately
+/// NOT set, so this stays forward-compatible with fields other packages add later.
+#[derive(Debug, Deserialize)]
+struct DeploymentsFile {
+    singletons: Singletons,
+}
+
+#[derive(Debug, Deserialize)]
+struct Singletons {
+    #[serde(rename = "XibalbaAgentRegistry")]
+    xibalba_agent_registry: Address,
+    /// `Option` (not required): genesis-only deployments files (e.g. produced by a
+    /// `Deploy.s.sol` run that predates the market layer) may not have this key yet —
+    /// see `MarketFactory`/`A2ACapitalPool`'s addition via the incremental
+    /// `DeployMarkets.s.sol` (§6.6/§6.9). Handlers that need it report a clean
+    /// "market layer not deployed" error rather than this client failing to even
+    /// connect.
+    #[serde(rename = "MarketFactory", default)]
+    market_factory: Option<Address>,
+    #[serde(rename = "IntegrityToken", default)]
+    integrity_token: Option<Address>,
+}
+
+/// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
+/// `XibalbaAgentRegistry` address; cheap to clone (provider is internally `Arc`-backed)
+/// so one instance is constructed at startup and shared across the Axum app.
+///
+/// The provider is stored as alloy's `DynProvider` — a concrete, `Sized`, type-erased
+/// provider — rather than an `Arc<dyn Provider>` trait object: `sol!`'s `#[sol(rpc)]`
+/// generated contract bindings require a `Sized` provider type (`ContractInstance::new`
+/// bounds `P: Provider`, which a `?Sized` trait object doesn't satisfy), and
+/// `DynProvider` is alloy's purpose-built answer for "erase the concrete provider type
+/// but stay usable with the generated bindings". It's `Clone` and internally `Arc`-backed,
+/// so cloning stays cheap.
+#[derive(Clone)]
+pub struct ChainClient {
+    provider: DynProvider,
+    registry_address: Address,
+    market_factory_address: Option<Address>,
+    integrity_token_address: Option<Address>,
+}
+
+impl ChainClient {
+    /// Connects to `rpc_url` and reads `deployments_file` for the registry address.
+    /// Per the interface contract (§6.6), only `singletons`/`cloneTemplates` addresses
+    /// ever come from this static file — per-agent primitive addresses are always
+    /// resolved live via `resolve_primitives`, never read from any file.
+    pub async fn connect(rpc_url: &str, deployments_file: &Path) -> Result<Self, ChainError> {
+        let raw = std::fs::read_to_string(deployments_file).map_err(|e| ChainError::DeploymentsFile {
+            path: deployments_file.display().to_string(),
+            source: e.into(),
+        })?;
+        let parsed: DeploymentsFile = serde_json::from_str(&raw).map_err(|e| ChainError::DeploymentsFile {
+            path: deployments_file.display().to_string(),
+            source: e.into(),
+        })?;
+
+        let url = rpc_url.parse().map_err(|e: url::ParseError| ChainError::DeploymentsFile {
+            path: rpc_url.to_string(),
+            source: anyhow::anyhow!(e),
+        })?;
+        let provider = ProviderBuilder::new().connect_http(url);
+
+        Ok(Self {
+            provider: provider.erased(),
+            registry_address: parsed.singletons.xibalba_agent_registry,
+            market_factory_address: parsed.singletons.market_factory,
+            integrity_token_address: parsed.singletons.integrity_token,
+        })
+    }
+
+    /// Constructs a client directly from an already-known registry address, bypassing the
+    /// deployments file. Used by tests that deploy their own registry against a local
+    /// anvil instance and don't want to round-trip through a JSON file on disk.
+    pub fn with_registry_address(provider: impl Provider + 'static, registry_address: Address) -> Self {
+        Self {
+            provider: provider.erased(),
+            registry_address,
+            market_factory_address: None,
+            integrity_token_address: None,
+        }
+    }
+
+    /// Same as [`Self::with_registry_address`], but also wires the market/token
+    /// singletons — used by tests that need `GET /v1/markets`-family endpoints against
+    /// a locally-deployed `MarketFactory`/`IntegrityToken`.
+    pub fn with_market_layer(
+        provider: impl Provider + 'static,
+        registry_address: Address,
+        market_factory_address: Address,
+        integrity_token_address: Address,
+    ) -> Self {
+        Self {
+            provider: provider.erased(),
+            registry_address,
+            market_factory_address: Some(market_factory_address),
+            integrity_token_address: Some(integrity_token_address),
+        }
+    }
+
+    fn registry(&self) -> IXibalbaAgentRegistry::IXibalbaAgentRegistryInstance<DynProvider> {
+        IXibalbaAgentRegistry::new(self.registry_address, self.provider.clone())
+    }
+
+    /// Resolves an agent's full 7-address `PrimitiveSet` by DID, straight from
+    /// `XibalbaAgentRegistry.resolveDID` (§6.1). This is the authoritative on-chain read
+    /// that `POST /v1/agent/register` cross-checks a client's claimed addresses against —
+    /// see this module's top-level doc comment for why that check matters.
+    pub async fn resolve_primitives_by_did(&self, did: &str) -> Result<AgentRecord, ChainError> {
+        let record = self
+            .registry()
+            .resolveDID(did.to_string())
+            .call()
+            .await
+            .map_err(|_| ChainError::UnknownDid(did.to_string()))?;
+        if !record.exists {
+            return Err(ChainError::UnknownDid(did.to_string()));
+        }
+        Ok(AgentRecord {
+            primitives: record.primitives.into(),
+            controller: record.controller,
+            domain_id: record.domainId,
+            registered_at: record.registeredAt,
+        })
+    }
+
+    /// Same resolution, keyed by the agent's `SovereignAgent` contract address instead of
+    /// its DID — used by `GET /v1/agent/{id}/compliance` and similar reads where the
+    /// caller already has the canonical on-chain address (e.g. from a cached
+    /// `agent_primitives` row) rather than the DID string.
+    pub async fn resolve_primitives_by_address(&self, sovereign_agent: Address) -> Result<AgentRecord, ChainError> {
+        let record = self
+            .registry()
+            .resolveAgent(sovereign_agent)
+            .call()
+            .await
+            .map_err(|_| ChainError::UnknownAgent(sovereign_agent))?;
+        if !record.exists {
+            return Err(ChainError::UnknownAgent(sovereign_agent));
+        }
+        Ok(AgentRecord {
+            primitives: record.primitives.into(),
+            controller: record.controller,
+            domain_id: record.domainId,
+            registered_at: record.registeredAt,
+        })
+    }
+
+    /// `keccak256(bytes(did))` — mirrors `XibalbaAgentRegistry.didHash` (a `pure`
+    /// function we can just as cheaply compute client-side rather than round-tripping an
+    /// RPC call for it).
+    pub fn did_hash(did: &str) -> B256 {
+        keccak256(did.as_bytes())
+    }
+
+    /// Reads `ReputationRegistry.effectiveScore` for a specific agent's own
+    /// ReputationRegistry clone address (resolved via `resolve_primitives_*` first — this
+    /// client never guesses which clone belongs to which agent).
+    pub async fn effective_score(&self, reputation_registry: Address, agent: Address) -> Result<U256, ChainError> {
+        let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
+        Ok(contract.effectiveScore(agent).call().await?)
+    }
+
+    pub async fn is_zk_boosted(&self, reputation_registry: Address, agent: Address) -> Result<bool, ChainError> {
+        let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
+        Ok(contract.isZkBoosted(agent).call().await?)
+    }
+
+    /// 0 = `Vertical.None`, 1 = `Vertical.Healthcare` (see `ComplianceGate.sol`'s enum —
+    /// deliberately read back as a raw `u8` here rather than a Rust enum, since this
+    /// client has no business asserting which vertical values are valid; that's the
+    /// contract's job, and a future added vertical shouldn't require an oracle redeploy
+    /// just to stop erroring on an unrecognized discriminant).
+    pub async fn compliance_vertical(&self, compliance_gate: Address) -> Result<u8, ChainError> {
+        let contract = IComplianceGate::new(compliance_gate, self.provider.clone());
+        Ok(contract.vertical().call().await?)
+    }
+
+    pub async fn is_healthcare_compliant(&self, compliance_gate: Address, covered_entity: Address) -> Result<bool, ChainError> {
+        let contract = IComplianceGate::new(compliance_gate, self.provider.clone());
+        Ok(contract.isHealthcareCompliant(covered_entity).call().await?)
+    }
+
+    pub fn market_factory_address(&self) -> Option<Address> {
+        self.market_factory_address
+    }
+
+    fn market_factory(&self) -> Result<IMarketFactory::IMarketFactoryInstance<DynProvider>, ChainError> {
+        let addr = self.market_factory_address.ok_or(ChainError::MissingSingleton("MarketFactory"))?;
+        Ok(IMarketFactory::new(addr, self.provider.clone()))
+    }
+
+    /// Full membership of `MarketFactory.allMarkets` — `allMarketsCount()` first, then
+    /// every `allMarkets(i)` read concurrently (`futures::future::join_all`), since
+    /// there's no single-call full-array getter (see this module's `IMarketFactory` doc
+    /// comment). This is the source of truth GET /v1/markets re-enumerates against on a
+    /// cache-staleness miss, so a brand-new market (created after the last sync) is
+    /// actually discovered, not just existing cached rows refreshed in place.
+    pub async fn all_market_addresses(&self) -> Result<Vec<Address>, ChainError> {
+        let factory = self.market_factory()?;
+        let count: U256 = factory.allMarketsCount().call().await?;
+        let count: u64 = count.try_into().unwrap_or(u64::MAX);
+
+        let reads = (0..count).map(|i| {
+            let factory = &factory;
+            async move { factory.allMarkets(U256::from(i)).call().await }
+        });
+        let results = futures::future::join_all(reads).await;
+
+        let mut addresses = Vec::with_capacity(results.len());
+        for r in results {
+            addresses.push(r?);
+        }
+        Ok(addresses)
+    }
+
+    pub async fn markets_by_creator(&self, creator: Address) -> Result<Vec<Address>, ChainError> {
+        let factory = self.market_factory()?;
+        Ok(factory.getMarketsByCreator(creator).call().await?)
+    }
+
+    /// Reads one `IntegrityMarket` clone's full view state (question, outcome
+    /// structure, resolution status, and the per-outcome pari-mutuel pool — see
+    /// `MarketDetail`'s doc comment on what's cheap vs. what needs event indexing).
+    /// Every field read concurrently rather than sequentially awaited one-by-one.
+    pub async fn read_market(&self, market: Address) -> Result<MarketDetail, ChainError> {
+        let contract = IIntegrityMarket::new(market, self.provider.clone());
+
+        // Each `.call()` builder must be bound to a local before it's awaited
+        // inline in the macro below — alloy's `SolCallBuilder::call()` future
+        // borrows from the builder, so passing `contract.field().call()`
+        // directly as a macro argument makes the builder a dropped-too-early
+        // temporary (E0716). Naming each one keeps it alive for the join.
+        let creator_call = contract.creator();
+        let question_call = contract.question();
+        let outcome_count_call = contract.outcomeCount();
+        let min_ais_to_enter_call = contract.minAisToEnter();
+        let resolve_deadline_call = contract.resolveDeadline();
+        let resolved_call = contract.resolved();
+        let winning_outcome_call = contract.winningOutcome();
+        let total_staked_call = contract.totalStaked();
+
+        let (creator, question, outcome_count, min_ais_to_enter, resolve_deadline, resolved, winning_outcome, total_staked) = tokio::try_join!(
+            creator_call.call(),
+            question_call.call(),
+            outcome_count_call.call(),
+            min_ais_to_enter_call.call(),
+            resolve_deadline_call.call(),
+            resolved_call.call(),
+            winning_outcome_call.call(),
+            total_staked_call.call(),
+        )?;
+
+        let outcome_staked_reads = (0..outcome_count).map(|i| {
+            let contract = contract.clone();
+            async move { contract.outcomeStaked(i).call().await }
+        });
+        let outcome_staked_results = futures::future::join_all(outcome_staked_reads).await;
+        let mut outcome_staked = Vec::with_capacity(outcome_staked_results.len());
+        for r in outcome_staked_results {
+            outcome_staked.push(r?);
+        }
+
+        Ok(MarketDetail {
+            address: market,
+            creator,
+            question,
+            outcome_count,
+            min_ais_to_enter,
+            resolve_deadline,
+            resolved,
+            winning_outcome,
+            total_staked,
+            outcome_staked,
+        })
+    }
+
+    /// Batch version of [`Self::read_market`] for `GET /v1/markets` — concurrent, not a
+    /// serial loop (per the task brief: "there could be dozens"). A market whose read
+    /// fails (e.g. transient RPC hiccup) is logged and skipped rather than failing the
+    /// whole listing.
+    pub async fn read_markets(&self, addresses: &[Address]) -> Vec<MarketDetail> {
+        let reads = addresses.iter().map(|&addr| async move {
+            match self.read_market(addr).await {
+                Ok(detail) => Some(detail),
+                Err(e) => {
+                    tracing::warn!(market = %addr, error = %e, "skipping market in batch read");
+                    None
+                }
+            }
+        });
+        futures::future::join_all(reads).await.into_iter().flatten().collect()
+    }
+
+    pub async fn get_position(&self, market: Address, agent: Address) -> Result<MarketPosition, ChainError> {
+        let contract = IIntegrityMarket::new(market, self.provider.clone());
+        Ok(contract.getPosition(agent).call().await?.into())
+    }
+
+    /// Real `IntegrityToken.balanceOf` read for `GET /v1/agent/{id}/wallet`.
+    pub async fn itk_balance_of(&self, account: Address) -> Result<U256, ChainError> {
+        let addr = self.integrity_token_address.ok_or(ChainError::MissingSingleton("IntegrityToken"))?;
+        let contract = IERC20Balance::new(addr, self.provider.clone());
+        Ok(contract.balanceOf(account).call().await?)
+    }
+}

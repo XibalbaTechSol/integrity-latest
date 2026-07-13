@@ -1,0 +1,36 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib", "node_modules"]
+test = "test"
+script = "script"
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+# AgentPrimitivesFactory.registerPrimitives clones+initializes 5 contracts in one
+# function (many locals + calldata params) and hits "stack too deep" under the legacy
+# codegen; via_ir's better variable allocation resolves it without having to fragment
+# the function across several internal helpers just to dodge a compiler limitation.
+via_ir = true
+fs_permissions = [
+  { access = "read-write", path = "../deployments.local.json" },
+  { access = "read-write", path = "../deployments.baseSepolia.json" },
+  { access = "read", path = "./" }
+]
+
+remappings = [
+  "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+  "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
+  "@chainlink/contracts-ccip/=node_modules/@chainlink/contracts-ccip/",
+  "@openzeppelin/contracts@5.0.2/=node_modules/@openzeppelin/contracts-5.0.2/",
+  "@openzeppelin/contracts@4.8.3/=node_modules/@openzeppelin/contracts-4.8.3/",
+  "forge-std/=lib/forge-std/src/"
+]
+
+# ── Local anvil chain (see docs/INTERFACE_CONTRACT.md §1-2) ──────────────────
+[rpc_endpoints]
+localhost = "http://127.0.0.1:8545"
+anvil = "${RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+# See https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

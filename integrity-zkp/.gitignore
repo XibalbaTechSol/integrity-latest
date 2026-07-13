@@ -1,0 +1,4 @@
+# Build artifacts — regenerate with `make build` (see README.md).
+# `generated/` is intentionally NOT ignored: UltraPlonkVerifier.sol is the
+# real hand-off artifact that contracts/ consumes.
+target/
