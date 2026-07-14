@@ -95,9 +95,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm install
+        working-directory: contracts
       - run: uv sync
         working-directory: integrity-sdk
       - run: uv run pytest
@@ -114,6 +119,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm install
+        working-directory: contracts
       - run: uv sync
         working-directory: integrity-cli
       - run: uv run pytest
@@ -156,6 +169,11 @@ jobs:
           POSTGRES_PASSWORD: integrity_dev_only
         ports:
           - 5435:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
@@ -177,7 +195,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: npm install
+      - run: npm ci
         working-directory: integrity-mvp
       - run: npm test
         working-directory: integrity-mvp
