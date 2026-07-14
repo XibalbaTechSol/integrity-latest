@@ -1223,11 +1223,64 @@ components:
           type:
           - array
           - 'null'
-          items: {}
+          items:
+            $ref: '#/components/schemas/TransactionDto'
           description: |-
             Transfer/stake/payout history requires indexing on-chain events (`Transfer`,
             `PositionEntered`, `PayoutClaimed`, ...), which this pass does not build. `null`,
             never a fabricated transaction list. See `docs/wiki/entities/integrity-oracle.md`.
+        allowances:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/AllowanceDto'
+    TransactionDto:
+      type: object
+      required:
+      - id
+      - type
+      - asset
+      - amount
+      - agent
+      - status
+      - time
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        asset:
+          type: string
+        amount:
+          type: string
+        usd:
+          type:
+          - string
+          - 'null'
+        agent:
+          type: string
+        status:
+          type: string
+        time:
+          type: string
+    AllowanceDto:
+      type: object
+      required:
+      - agent
+      - limit
+      - spent
+      - status
+      properties:
+        agent:
+          type: string
+        limit:
+          type: string
+        spent:
+          type: number
+          format: double
+        status:
+          type: string
     ZkProofDto:
       type: object
       required:

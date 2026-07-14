@@ -339,7 +339,7 @@ export const SettingsPage = () => {
                   {loadingKeys && <div style={{ color: 'var(--text-muted)' }}>Loading keys...</div>}
                   {!loadingKeys && keys.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No API keys found.</div>}
                   {keys.map(k => (
-                    <div key={k.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
+                    <div key={k.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', paddingBottom: '8px' }}>
                       <div>
                         <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-primary)' }}>
                           ID: {k.id.slice(0, 8)}... (Ceiling: {k.ais_trust_ceiling})
@@ -355,7 +355,7 @@ export const SettingsPage = () => {
                           <button 
                             className="btn btn-danger" 
                             onClick={() => handleRevokeKey(k.id)} 
-                            style={{ padding: '4px 8px', fontSize: '0.7rem', background: 'var(--danger)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                            style={{ padding: '4px 8px', fontSize: '0.7rem', background: 'var(--danger)', color: 'var(--text-primary)', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                           >
                             Revoke
                           </button>

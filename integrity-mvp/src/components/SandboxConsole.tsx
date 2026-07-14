@@ -126,7 +126,7 @@ export const SandboxConsole = () => {
                             key={results?.ais}
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            style={{ fontSize: '5rem', fontWeight: 900, color: 'var(--gold)', fontFamily: 'Playfair Display, serif' }}
+                            style={{ fontSize: '5rem', fontWeight: 900, color: 'var(--gold)', fontFamily: 'inherit' }}
                         >
                             {results?.ais}
                         </motion.div>

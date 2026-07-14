@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Responsive } from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
 import { oracle } from '../services/oracle';
+import { useOracleStream } from '../hooks/useOracleStream';
 import { WidgetRegistry } from '../components/widgets/WidgetRegistry';
 import { WidgetWrapper } from '../components/widgets/WidgetWrapper';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -34,7 +35,7 @@ const ResponsiveGridLayout = (props: any) => {
 const DEFAULT_WIDGETS = [
   { id: 'tri-metric', type: 'tri-metric' },
   { id: 'gauge', type: 'gauge' },
-  { id: 'throughput', type: 'throughput' },
+  { id: 'costAnalytics', type: 'costAnalytics' },
   { id: 'latency', type: 'latency' },
   { id: 'nodes', type: 'nodes' },
   { id: 'events', type: 'events' }
@@ -43,24 +44,26 @@ const DEFAULT_WIDGETS = [
 const DEFAULT_LAYOUTS = {
   lg: [
     { i: 'tri-metric', x: 0, y: 0, w: 12, h: 2, minW: 6, minH: 2 },
-    { i: 'gauge', x: 0, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
-    { i: 'throughput', x: 4, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
-    { i: 'latency', x: 8, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
+    { i: 'gauge', x: 0, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
+    { i: 'costAnalytics', x: 3, y: 2, w: 6, h: 2, minW: 4, minH: 2 },
+    { i: 'latency', x: 9, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
     { i: 'nodes', x: 0, y: 4, w: 6, h: 2, minW: 4, minH: 2 },
     { i: 'events', x: 6, y: 4, w: 6, h: 2, minW: 4, minH: 2 }
   ],
   md: [
     { i: 'tri-metric', x: 0, y: 0, w: 10, h: 2, minW: 6, minH: 2 },
-    { i: 'gauge', x: 0, y: 2, w: 5, h: 2, minW: 3, minH: 2 },
-    { i: 'throughput', x: 5, y: 2, w: 5, h: 2, minW: 3, minH: 2 },
-    { i: 'latency', x: 0, y: 4, w: 5, h: 2, minW: 3, minH: 2 },
-    { i: 'nodes', x: 5, y: 4, w: 5, h: 2, minW: 4, minH: 2 },
+    { i: 'gauge', x: 0, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
+    { i: 'costAnalytics', x: 4, y: 2, w: 6, h: 2, minW: 3, minH: 2 },
+    { i: 'latency', x: 0, y: 4, w: 4, h: 2, minW: 3, minH: 2 },
+    { i: 'nodes', x: 4, y: 4, w: 6, h: 2, minW: 4, minH: 2 },
     { i: 'events', x: 0, y: 6, w: 10, h: 2, minW: 4, minH: 2 }
   ]
 };
 
 export const DashboardPage = () => {
   const [isEditing, setIsEditing] = useState(false);
+  const { latestAis } = useOracleStream();
+  const [agentScores, setAgentScores] = useState<Record<string, number>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [widgets, setWidgets] = useState<Array<{ id: string; type: string }>>([]);
   const [layouts, setLayouts] = useState<any>({ lg: [], md: [] });
@@ -69,8 +72,8 @@ export const DashboardPage = () => {
 
   // Initial load from LocalStorage
   useEffect(() => {
-    const savedWidgets = localStorage.getItem('integrity_dashboard_widgets');
-    const savedLayouts = localStorage.getItem('integrity_dashboard_layouts');
+    const savedWidgets = localStorage.getItem('integrity_dashboard_widgets_v3');
+    const savedLayouts = localStorage.getItem('integrity_dashboard_layouts_v3');
     
     if (savedWidgets && savedLayouts) {
       try {
@@ -92,18 +95,18 @@ export const DashboardPage = () => {
     (async () => {
       try {
         const summaries = await oracle.listAgents();
-        const scores = await Promise.all(summaries.map(a => oracle.getAis(a.id).then(r => r.ais).catch(() => null)));
-        const valid = scores.filter((s): s is number => s !== null);
+        const scoresMap: Record<string, number> = {};
+        await Promise.all(summaries.map(async (a) => {
+            try {
+                const res = await oracle.getAis(a.id);
+                scoresMap[a.id] = res.ais;
+            } catch (e) {
+                // Ignore error, score is not mapped
+            }
+        }));
         if (cancelled) return;
-        const high = valid.filter(s => s >= 900).length;
-        const mid = valid.filter(s => s >= 700 && s < 900).length;
-        const low = valid.filter(s => s < 700).length;
-        setAisDistribution([
-          { name: 'High (900+)', count: high, fill: 'var(--success)' },
-          { name: 'Medium (700-899)', count: mid, fill: 'var(--warning)' },
-          { name: 'Low (<700)', count: low, fill: 'var(--danger)' },
-        ]);
-        setHighIntegrityPct(valid.length ? Math.round((high / valid.length) * 100) : null);
+        setAgentScores(scoresMap);
+        // Handled by the agentScores effect now
       } catch {
         if (!cancelled) setAisDistribution(null);
       }
@@ -111,22 +114,50 @@ export const DashboardPage = () => {
     return () => { cancelled = true; };
   }, []);
 
+  // Update real-time score map and distribution
+  useEffect(() => {
+    if (latestAis) {
+      setAgentScores(prev => ({
+        ...prev,
+        [latestAis.agent_id]: latestAis.ais
+      }));
+    }
+  }, [latestAis]);
+
+  useEffect(() => {
+    const scores = Object.values(agentScores);
+    const total = scores.length;
+    const high = scores.filter(s => s >= 900).length;
+    const mid = scores.filter(s => s >= 700 && s < 900).length;
+    const low = scores.filter(s => s < 700).length;
+    setAisDistribution([
+        { name: 'High (900+)', count: high, fill: 'var(--success)' },
+        { name: 'Medium (700-899)', count: mid, fill: 'var(--warning)' },
+        { name: 'Low (<700)', count: low, fill: 'var(--danger)' },
+    ]);
+    if (total > 0) {
+      setHighIntegrityPct(Math.round((high / total) * 100));
+    } else {
+      setHighIntegrityPct(0);
+    }
+  }, [agentScores]);
+
   const onLayoutChange = (_layout: Layout[], allLayouts: any) => {
     // Only update layouts state, don't write to localStorage until saved or editing
     setLayouts(allLayouts);
   };
 
   const handleSave = () => {
-    localStorage.setItem('integrity_dashboard_widgets', JSON.stringify(widgets));
-    localStorage.setItem('integrity_dashboard_layouts', JSON.stringify(layouts));
+    localStorage.setItem('integrity_dashboard_widgets_v3', JSON.stringify(widgets));
+    localStorage.setItem('integrity_dashboard_layouts_v3', JSON.stringify(layouts));
     setIsEditing(false);
   };
 
   const handleResetDefault = () => {
     setWidgets(DEFAULT_WIDGETS);
     setLayouts(DEFAULT_LAYOUTS);
-    localStorage.removeItem('integrity_dashboard_widgets');
-    localStorage.removeItem('integrity_dashboard_layouts');
+    localStorage.removeItem('integrity_dashboard_widgets_v3');
+    localStorage.removeItem('integrity_dashboard_layouts_v3');
     setIsEditing(false);
   };
 
@@ -261,7 +292,7 @@ export const DashboardPage = () => {
                       e.currentTarget.style.borderColor = 'transparent';
                     }}
                   >
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white' }}>{value.name}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{value.name}</span>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{value.description}</span>
                   </button>
                 ))}

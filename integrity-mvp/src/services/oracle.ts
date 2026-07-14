@@ -67,12 +67,31 @@ export interface WalletPositionDto {
     won: boolean | null;
 }
 
+export interface TransactionDto {
+    id: string;
+    type: string;
+    asset: string;
+    amount: string;
+    usd: string | null;
+    agent: string;
+    status: string;
+    time: string;
+}
+
+export interface AllowanceDto {
+    agent: string;
+    limit: string;
+    spent: number;
+    status: string;
+}
+
 export interface WalletResponse {
     agent_id: string;
     sovereign_agent: string;
     itk_balance: string;
     open_positions: WalletPositionDto[];
-    transaction_history: unknown[] | null;
+    transaction_history: TransactionDto[] | null;
+    allowances: AllowanceDto[] | null;
 }
 
 export interface MarketSummaryDto {
@@ -135,6 +154,60 @@ export interface AgentJudgeEvaluationDto {
     created_at: string;
 }
 
+export interface AisHistoryPoint {
+    bucket_start: string;
+    ais: number;
+    entropy: number;
+    grounding: number;
+    sacrifice: number;
+    compliance: number;
+    zk_boost: number;
+    event_count: number;
+}
+
+export interface VolumeBucket {
+    bucket_start: string;
+    count: number;
+    flagged_count: number;
+}
+
+export interface OtelVolumeBucket {
+    bucket_start: string;
+    span_count: number;
+}
+
+// Bucket granularity accepted by the oracle's history endpoints — see
+// backend::handlers::parse_bucket_interval's allowlist.
+export type HistoryBucket = '5m' | '15m' | '1h' | '6h' | '1d' | '1w';
+
+export interface SpanTreeNode {
+    id: string;
+    agent_id: string;
+    span_id: string;
+    name: string;
+    kind: string;
+    status_code: string;
+    start_time: string;
+    end_time: string;
+    duration_ms: number;
+    attributes: Record<string, unknown>;
+    children: SpanTreeNode[];
+}
+
+export interface TraceTreeResponse {
+    trace_id: string;
+    span_count: number;
+    truncated: boolean;
+    roots: SpanTreeNode[];
+}
+
+// Server-Sent Event frames pushed over /v1/stream and /v1/agent/{id}/stream — mirrors
+// backend::stream::StreamEvent's #[serde(tag = "type")] shape exactly.
+export type StreamEvent =
+    | { type: 'TelemetryEvent'; agent_id: string; event_id: string; flagged: boolean; created_at: string }
+    | { type: 'OtelSpan'; agent_id: string; trace_id: string; span_id: string; name: string }
+    | ({ type: 'AisUpdate' } & AisResponse);
+
 class OracleError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -151,9 +224,23 @@ async function get<T>(path: string): Promise<T> {
     return res.json();
 }
 
+function historyQuery(bucket?: HistoryBucket, since?: string): string {
+    const params = new URLSearchParams();
+    if (bucket) params.set('bucket', bucket);
+    if (since) params.set('since', since);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+}
+
 export const oracle = {
     getAgent: (id: string) => get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`),
-    listAgents: () => get<AgentSummary[]>('/v1/agents'),
+    listAgents: async () => {
+        const summaries = await get<AgentSummary[]>('/v1/agents');
+        const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
+        return MOCK_MODE 
+            ? summaries.filter(s => s.id.startsWith('mock-agent-'))
+            : summaries.filter(s => !s.id.startsWith('mock-agent-'));
+    },
     getAis: (id: string) => get<AisResponse>(`/v1/agent/${encodeURIComponent(id)}/ais`),
     getCompliance: (id: string, coveredEntity?: string) =>
         get<ComplianceResponse>(
@@ -166,6 +253,18 @@ export const oracle = {
     getLeaderboard: () => get<LeaderboardEntryDto[]>('/v1/leaderboard'),
     getTelemetry: (id: string) => get<TelemetryEventDetailDto[]>(`/v1/agent/${encodeURIComponent(id)}/telemetry`),
     getTraces: (id: string) => get<AgentJudgeEvaluationDto[]>(`/v1/agent/${encodeURIComponent(id)}/traces`),
+
+    getAisHistory: (id: string, bucket?: HistoryBucket, since?: string) =>
+        get<AisHistoryPoint[]>(`/v1/agent/${encodeURIComponent(id)}/ais/history${historyQuery(bucket, since)}`),
+    getTelemetryVolume: (id: string, bucket?: HistoryBucket, since?: string) =>
+        get<VolumeBucket[]>(`/v1/agent/${encodeURIComponent(id)}/telemetry/volume${historyQuery(bucket, since)}`),
+    getOtelVolume: (id: string, bucket?: HistoryBucket, since?: string) =>
+        get<OtelVolumeBucket[]>(`/v1/agent/${encodeURIComponent(id)}/otel/volume${historyQuery(bucket, since)}`),
+    getTraceTree: (traceId: string) => get<TraceTreeResponse>(`/v1/traces/${encodeURIComponent(traceId)}`),
+
+    // EventSource doesn't take fetch-style options, so callers construct their own
+    // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.
+    streamUrl: (agentId?: string) => `${ORACLE_URL}${agentId ? `/v1/agent/${encodeURIComponent(agentId)}/stream` : '/v1/stream'}`,
 };
 
 export { OracleError };

@@ -960,7 +960,9 @@ cross-package contract fact, not just an `integrity-mvp`-internal detail:
 
 `GET /v1/markets`, `GET /v1/markets/{id}`, `GET /v1/leaderboard`, and
 `GET /v1/agent/{id}/wallet` had no prior dashboard assumption to drift from
-(first-time consumers) and match `handlers.rs` as documented in §6.9.
+(first-time consumers) and match `handlers.rs` as documented in §6.9. Note that
+`GET /v1/agent/{id}/wallet` now returns a `WalletResponse` containing not just balances, but also
+arrays for `transaction_history` and `allowances` to power the Finance UI.
 `integrity-oracle` exposes **no** `A2ACapitalPool` read endpoint at all
 (confirmed against `routes.rs`) — `integrity-mvp`'s Capital Allocation page
 states this as a real, visible gap rather than fabricating live pool data.

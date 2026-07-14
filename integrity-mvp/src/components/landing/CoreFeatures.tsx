@@ -7,11 +7,11 @@ import { useIsMobile } from '../../utils/useIsMobile';
 export const TrustGapSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--navy-deep)', position: 'relative', overflow: 'hidden' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--bg-main)', position: 'relative', overflow: 'hidden' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
                     <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The Trust Gap</span>
-                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Agents can reason.<br /><span style={{ color: 'var(--gold)' }}>But can they transact?</span></h2>
+                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'var(--text-primary)' }}>Agents can reason.<br /><span style={{ color: 'var(--gold)' }}>But can they transact?</span></h2>
                     <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '800px', margin: '0 auto', lineHeight: 1.7, fontSize: isMobile ? '0.95rem' : '1.1rem' }}>
                         The agentic web is scaling rapidly, but autonomous code lacks verifiable accountability. 
                         The Integrity Protocol bridges this gap using cryptographic middleware (BCC) and Base L2 settlement to establish immutable reputation.
@@ -21,21 +21,21 @@ export const TrustGapSection = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? '20px' : '32px' }}>
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderColor: 'rgba(212,175,55,0.3)' }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px', transition: 'border-color 0.3s' }}>
                         <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Pre-Execution Gating</h4>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-primary)' }}>Pre-Execution Gating</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                             Smart contracts verify an agent's Integrity Score (AIS) before allowing a transaction to execute, preventing malicious or hallucinated actions.
                         </p>
                     </motion.div>
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px", amount: 0.3 }} whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderColor: 'rgba(96,165,250,0.3)' }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px', transition: 'border-color 0.3s' }}>
                         <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Activity size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Real-time Telemetry</h4>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-primary)' }}>Real-time Telemetry</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                             Agent decisions are continuously monitored via the Behavioral Commitment Chain (BCC), dynamically adjusting their reputation based on performance and entropy.
                         </p>
                     </motion.div>
                     <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px", amount: 0.6 }} whileHover={{ y: -5, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderColor: 'rgba(167,139,250,0.3)' }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.2) 100%)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px', transition: 'border-color 0.3s' }}>
                         <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Lock size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Base L2 Settlement</h4>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'var(--text-primary)' }}>Base L2 Settlement</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                             All reputation proofs and final SLA escrows are settled securely and cheaply on Base L2, ensuring permanent cryptographic accountability.
                         </p>
@@ -49,14 +49,14 @@ export const TrustGapSection = () => {
 export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { setContactType: any, setIsContactOpen: any }) => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'radial-gradient(circle at top, rgba(212, 175, 55, 0.05) 0%, rgba(5,13,24,1) 80%)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'radial-gradient(circle at top, rgba(212, 175, 55, 0.05) 0%, rgba(5,13,24,1) 80%)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '60px' : '100px', alignItems: 'center' }}>
                     <motion.div initial={{ opacity: 0, x: -30 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }}>
                         <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '16px', display: 'block' }}>Developer Experience</span>
                         <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>Start building instantly.<br />No hardware DID required.</h2>
                         <p style={{ fontSize: '1.15rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: '24px', fontWeight: 500 }}>
-                            Enter the agent economy today with our new <strong style={{ color: 'white' }}>Developer API Key</strong> testing mode. 
+                            Enter the agent economy today with our new <strong style={{ color: 'var(--text-primary)' }}>Developer API Key</strong> testing mode. 
                         </p>
                         <p style={{ fontSize: '1rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.8, marginBottom: '40px' }}>
                             We know that provisioning hardware-backed DIDs can slow down development. That's why we've introduced Developer API Keys. Simply generate a key from the dashboard and immediately start routing telemetry to the BCC. For safety, agents using this bypass are mathematically capped at a Trust Level (AIS) of 300, allowing you to build and test safely before moving to mainnet production.
@@ -65,7 +65,7 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
                             <button onClick={() => { setContactType('developer'); setIsContactOpen(true); }} className="btn btn-primary" style={{ padding: '16px 32px', fontSize: '1rem', boxShadow: '0 10px 30px rgba(212,175,55,0.2)' }}>
                                 Request API Key
                             </button>
-                            <a href="https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ padding: '16px 32px', border: '1px solid rgba(255,255,255,0.15)', color: 'white', textDecoration: 'none', fontSize: '1rem' }}>
+                            <a href="https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ padding: '16px 32px', border: '1px solid rgba(255,255,255,0.15)', color: 'var(--text-primary)', textDecoration: 'none', fontSize: '1rem' }}>
                                 Read the Docs
                             </a>
                         </div>
@@ -73,7 +73,7 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
                     
                     <motion.div initial={{ opacity: 0, x: 30 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} style={{ background: 'linear-gradient(145deg, rgba(15,23,42,0.9) 0%, rgba(5,13,24,0.9) 100%)', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '24px', position: 'relative', boxShadow: '0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', overflow: 'hidden' }}>
                         {/* IDE Header */}
-                        <div style={{ padding: '16px 24px', background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '16px 24px', background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#f87171', boxShadow: '0 0 10px #f87171' }} />
                                 <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 10px #fbbf24' }} />
@@ -83,7 +83,7 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
                         </div>
                         {/* IDE Body */}
                         <div style={{ padding: '32px', overflowX: 'auto' }}>
-                            <pre style={{ margin: 0, color: '#e2e8f0', fontSize: '0.9rem', fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.7 }}>
+                            <pre style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.9rem', fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.7 }}>
 <code style={{ color: '#c678dd' }}>import</code> {'{'} IntegrityClient {'}'} <code style={{ color: '#c678dd' }}>from</code> <code style={{ color: '#98c379' }}>'@xibalba/integrity-sdk'</code>;
 
 <code style={{ color: '#5c6370', fontStyle: 'italic' }}>// Initialize with your Developer API Key</code>
@@ -115,7 +115,7 @@ export const ProgrammableEscrowsSection = () => {
     const isMobile = useIsMobile();
     const navigate = useNavigate();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5, 13, 24, 0.98)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5, 13, 24, 0.98)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: isMobile ? '40px' : '100px', alignItems: 'center' }}>
                     <div>
@@ -132,21 +132,21 @@ export const ProgrammableEscrowsSection = () => {
                             <motion.div whileHover={{ scale: 1.02 }} className="enterprise-card" style={{ padding: '32px', background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%)', borderLeft: '4px solid #10b981', borderRadius: '16px' }}>
                                 <div style={{ color: '#10b981', marginBottom: '16px' }}><Zap size={24} /></div>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '8px' }}>SLA Automated Escrows</h4>
-                                <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, margin: 0 }}>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                                     Conditionally release ITK task payments only when an agent maintains its AIS score above a defined threshold throughout the execution cycle.
                                 </p>
                             </motion.div>
                             <motion.div whileHover={{ scale: 1.02 }} className="enterprise-card" style={{ padding: '32px', background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%)', borderLeft: '4px solid #3b82f6', borderRadius: '16px' }}>
                                 <div style={{ color: '#3b82f6', marginBottom: '16px' }}><ShieldCheck size={24} /></div>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '8px' }}>Parametric Insurance</h4>
-                                <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, margin: 0 }}>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                                     Deploy binary-outcome vaults that automatically pay out coverage to beneficiaries if an agent's performance entropy triggers a verifiable fault condition.
                                 </p>
                             </motion.div>
                             <motion.div whileHover={{ scale: 1.02 }} className="enterprise-card" style={{ padding: '32px', background: 'linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.3) 100%)', borderLeft: '4px solid #a855f7', borderRadius: '16px' }}>
                                 <div style={{ color: '#a855f7', marginBottom: '16px' }}><Cpu size={24} /></div>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '8px' }}>Agent-Owned Contracts</h4>
-                                <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, margin: 0 }}>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
                                     Agents can deploy and natively own their own smart contracts (e.g., DeFi vaults, liquidity pools), programmatically governed by their real-time on-chain trust score.
                                 </p>
                             </motion.div>
@@ -164,7 +164,7 @@ export const ProgrammableEscrowsSection = () => {
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="btn btn-outline" 
-                                style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'white', textDecoration: 'none' }}
+                                style={{ border: '1px solid hsla(var(--border-color-hsl) / 0.5)', color: 'var(--text-primary)', textDecoration: 'none' }}
                             >
                                 READ ESCROW SPECS
                             </a>
@@ -172,14 +172,14 @@ export const ProgrammableEscrowsSection = () => {
                     </div>
 
                     <div className="enterprise-card" style={{ padding: 0, background: '#050d18', border: '1px solid rgba(212, 175, 55, 0.1)', overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.4)', position: 'relative' }}>
-                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <Code size={14} style={{ color: 'var(--gold)' }} />
                                 <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: 700 }}>contracts/NoCodeFactory.sol</span>
                             </div>
                             <div className="badge badge-gold" style={{ fontSize: '0.5rem' }}>EIP-1167 PROXY</div>
                         </div>
-                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>
+                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
                             <code style={{ color: '#c9a84c' }}>function</code> <code style={{ color: '#10b981' }}>deploySLA</code>(<br />
                             {'  '}address _agent,<br />
                             {'  '}uint256 _minAIS,<br />
@@ -214,12 +214,12 @@ export const ProgrammableEscrowsSection = () => {
 export const EconomicUseCasesSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5, 13, 24, 0.8)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5, 13, 24, 0.8)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '40px' : '80px' }}>
                     <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em' }}>Market Applications</span>
                     <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginTop: '16px' }}>Economic Utility for the <span style={{ color: 'var(--gold)' }}>Agentic Web.</span></h2>
-                    <p style={{ color: 'rgba(255,255,255,0.7)', maxWidth: '900px', margin: '24px auto 0', lineHeight: 1.7, fontSize: '1.15rem', fontWeight: 500 }}>
+                    <p style={{ color: 'var(--text-secondary)', maxWidth: '900px', margin: '24px auto 0', lineHeight: 1.7, fontSize: '1.15rem', fontWeight: 500 }}>
                         The Integrity Protocol isn't just a score; it's a functional primitive that unlocks multi-billion dollar markets for autonomous systems. By converting mathematical reputation into institutional-grade risk ratings, we enable the first scalable infrastructure for insured agent commerce.
                     </p>
                     <p style={{ color: 'rgba(255,255,255,0.4)', maxWidth: '850px', margin: '24px auto 0', lineHeight: 1.8, fontSize: '1rem' }}>
@@ -272,12 +272,12 @@ export const EconomicUseCasesSection = () => {
                             </div>
                             <span style={{ color: useCase.color, fontSize: '0.65rem', fontWeight: 900, letterSpacing: '0.25em' }}>{useCase.subtitle}</span>
                             <h3 style={{ fontSize: isMobile ? '1.4rem' : '1.8rem', fontWeight: 800, margin: '12px 0 20px' }}>{useCase.title}</h3>
-                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: isMobile ? '0.9rem' : '0.95rem', lineHeight: 1.7, marginBottom: isMobile ? '24px' : '40px', flex: 1 }}>
+                            <p style={{ color: 'var(--text-muted)', fontSize: isMobile ? '0.9rem' : '0.95rem', lineHeight: 1.7, marginBottom: isMobile ? '24px' : '40px', flex: 1 }}>
                                 {useCase.desc}
                             </p>
-                            <div style={{ paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ paddingTop: '24px', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)' }}>PROJECTED IMPACT:</div>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 900, color: 'white' }}>{useCase.impact}</div>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 900, color: 'var(--text-primary)' }}>{useCase.impact}</div>
                             </div>
                         </motion.div>
                     ))}
@@ -300,15 +300,15 @@ export const EconomicUseCasesSection = () => {
 export const PrivacyArchitectureSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '100px 60px', background: 'var(--navy-deep)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '100px 60px', background: 'var(--bg-main)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <motion.div 
                     initial={{ opacity: 0, y: 20 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true }}
                     style={{ 
-                        background: 'rgba(255,255,255,0.03)', 
-                        border: '1px solid rgba(255,255,255,0.1)', 
+                        background: 'hsla(var(--bg-panel-hsl) / 0.3)', 
+                        border: '1px solid hsla(var(--border-color-hsl) / 0.5)', 
                         borderRadius: '16px', 
                         padding: isMobile ? '32px' : '48px',
                         textAlign: 'left',
@@ -321,10 +321,10 @@ export const PrivacyArchitectureSection = () => {
                         </div>
                         <div>
                             <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '8px', display: 'block' }}>Data Sovereignty</span>
-                            <h3 style={{ margin: 0, fontSize: isMobile ? '1.5rem' : '2rem', fontFamily: 'Playfair Display, serif', fontWeight: 600 }}>Dual-Mode Privacy Architecture</h3>
+                            <h3 style={{ margin: 0, fontSize: isMobile ? '1.5rem' : '2rem', fontFamily: 'inherit', fontWeight: 600 }}>Dual-Mode Privacy Architecture</h3>
                         </div>
                     </div>
-                    <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1.1rem', marginBottom: '40px', lineHeight: 1.7, maxWidth: '800px' }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', marginBottom: '40px', lineHeight: 1.7, maxWidth: '800px' }}>
                         The Integrity Protocol empowers developers with absolute control over their AI telemetry. Choose the exact level of cryptographic data sovereignty required for your specific vertical without sacrificing accountability.
                     </p>
                     
@@ -335,7 +335,7 @@ export const PrivacyArchitectureSection = () => {
                                 <Eye size={24} color="white" />
                                 <strong style={{ fontSize: '1.2rem' }}>Transparent Mode <span style={{ opacity: 0.5, fontWeight: 400, fontSize: '1rem' }}>(Default)</span></strong>
                             </div>
-                            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '1rem', lineHeight: 1.7, margin: 0 }}>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '1rem', lineHeight: 1.7, margin: 0 }}>
                                 Full plaintext reasoning traces are transmitted to the Oracle for standard SaaS debugging and rapid AI alignment. Perfect for public or non-sensitive operations where maximum visibility is required.
                             </p>
                         </div>
@@ -346,7 +346,7 @@ export const PrivacyArchitectureSection = () => {
                                 <Lock size={24} color="var(--gold)" />
                                 <strong style={{ fontSize: '1.2rem', color: 'var(--gold)' }}>Sovereign ZK-Mode <span style={{ opacity: 0.8, fontWeight: 400, fontSize: '1rem' }}>(Enterprise)</span></strong>
                             </div>
-                            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1rem', lineHeight: 1.7, margin: 0 }}>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: 1.7, margin: 0 }}>
                                 Traces never leave local hardware. The SDK generates a mathematical Zero-Knowledge Proof (ZK-Proof) to guarantee compliance without exposing sensitive data to the network. Essential for healthcare, finance, and confidential IP.
                             </p>
                         </div>

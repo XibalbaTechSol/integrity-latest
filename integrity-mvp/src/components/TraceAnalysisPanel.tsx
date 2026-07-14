@@ -81,7 +81,7 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
           alignItems: 'center', 
           gap: '8px', 
           padding: '8px', 
-          background: 'rgba(255,255,255,0.03)', 
+          background: 'hsla(var(--bg-panel-hsl) / 0.3)', 
           border: '1px solid var(--glass-border)', 
           borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
@@ -101,7 +101,7 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
           }}>
             {span.run_type.toUpperCase()}
           </span>
-          <span style={{ fontSize: '0.8rem', color: 'white', fontFamily: 'monospace' }}>{span.name}</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{span.name}</span>
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{span.duration.toFixed(3)}s</span>
         </div>
 
@@ -236,7 +236,7 @@ export function TraceAnalysisPanel() {
                 </div>
                 
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  You have rewound the agent to: <span className="mono" style={{ color: 'white' }}>{rewindSpan.name}</span>
+                  You have rewound the agent to: <span className="mono" style={{ color: 'var(--text-primary)' }}>{rewindSpan.name}</span>
                 </div>
 
                 <div className="form-group">

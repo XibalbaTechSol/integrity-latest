@@ -1,6 +1,7 @@
 import React from 'react';
-import { Activity, ShieldCheck, Zap, AlertTriangle, CheckCircle, FileText, Server, Radar } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar as RechartsRadar, PieChart, Pie, Cell } from 'recharts';
+import { Activity, ShieldCheck, Zap, FileText, Server, Radar } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar as RechartsRadar } from 'recharts';
+
 import { SeededDataBadge } from '../../shared/SeededDataBadge';
 
 import { TriMetricWidget } from './TriMetricWidget';
@@ -30,11 +31,16 @@ const LATENCY_DATA = [
 
 const RADAR_DATA = [
   { subject: 'ZKP Performance', A: 120, B: 110, fullMark: 150 },
-  { subject: 'Attestation Speed', A: 98, B: 130, fullMark: 150 },
-  { subject: 'Middleware Latency', A: 86, B: 130, fullMark: 150 },
-  { subject: 'Chain Anchoring', A: 99, B: 100, fullMark: 150 },
-  { subject: 'AIS Scoring Accuracy', A: 85, B: 90, fullMark: 150 },
-  { subject: 'Node Reliability', A: 65, B: 85, fullMark: 150 }
+  { subject: 'Attestation Speed', A: 98, B: 130, fullMark: 150 }
+];
+
+const COST_DATA = [
+  { time: 'Mon', spend: 120, tokens: 4.2 },
+  { time: 'Wed', spend: 180, tokens: 6.8 },
+  { time: 'Thu', spend: 340, tokens: 12.1 },
+  { time: 'Fri', spend: 290, tokens: 9.4 },
+  { time: 'Sat', spend: 150, tokens: 5.1 },
+  { time: 'Sun', spend: 220, tokens: 7.8 }
 ];
 
 interface WidgetProps {
@@ -83,42 +89,41 @@ export const WidgetRegistry: Record<string, {
     component: TriMetricWidget
   },
   gauge: {
-    name: 'Network AIS Distribution',
-    description: 'Radial representation of Agent Integrity Scores across the network.',
+    name: 'Network Security Score',
+    description: 'Real-time security posture of the network across all agents.',
     defaultSize: { w: 4, h: 2 },
     component: ({ aisDistribution, highIntegrityPct }) => (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
-          <h3 className="card-title" style={{ fontSize: '0.9rem' }}>Network AIS Distribution</h3>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0, width: '100%' }}>
+          <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Network Security Score
+          </h3>
           <ShieldCheck size={18} className="text-muted" />
         </div>
-        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={aisDistribution ?? AIS_DISTRIBUTION_FALLBACK}
-                innerRadius="60%"
-                outerRadius="80%"
-                paddingAngle={5}
-                dataKey="count"
-                stroke="none"
-              >
-                {(aisDistribution ?? AIS_DISTRIBUTION_FALLBACK).map((entry: any, index: number) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
-                itemStyle={{ color: 'white' }}
-              />
-              <Legend iconSize={10} layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: '12px' }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{ position: 'absolute', bottom: '10px', left: '10px' }}>
-            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              {highIntegrityPct !== undefined && highIntegrityPct !== null ? `${highIntegrityPct}%` : '—'}
+        <div style={{ flex: 1, minHeight: 0, position: 'relative', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', width: '140px', height: '140px' }}>
+            <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+              <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+              <circle cx="50" cy="50" r="45" fill="none" stroke="var(--success)" strokeWidth="8" strokeDasharray="282.7" strokeDashoffset={282.7 * (1 - (highIntegrityPct ?? 94) / 100)} style={{ transition: 'stroke-dashoffset 1s ease-out' }} strokeLinecap="round" />
+            </svg>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textShadow: '0 0 20px rgba(16,185,129,0.5)' }}>
+              <span style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', lineHeight: 1 }}>{highIntegrityPct ?? 94}</span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Score</span>
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--success)' }}>Agents in High Integrity State</div>
+          </div>
+          <div style={{ position: 'absolute', bottom: 0, width: '100%', display: 'flex', justifyContent: 'space-around', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            <div style={{ textAlign: 'center' }}>
+               <div style={{ color: 'var(--success)', fontWeight: 700 }}>{(aisDistribution ?? AIS_DISTRIBUTION_FALLBACK)[0].count}</div>
+               High
+            </div>
+            <div style={{ textAlign: 'center' }}>
+               <div style={{ color: 'var(--warning)', fontWeight: 700 }}>{(aisDistribution ?? AIS_DISTRIBUTION_FALLBACK)[1].count}</div>
+               Medium
+            </div>
+            <div style={{ textAlign: 'center' }}>
+               <div style={{ color: 'var(--danger)', fontWeight: 700 }}>{(aisDistribution ?? AIS_DISTRIBUTION_FALLBACK)[2].count}</div>
+               Low
+            </div>
           </div>
         </div>
       </div>
@@ -201,7 +206,7 @@ export const WidgetRegistry: Record<string, {
     component: () => (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', paddingBottom: '12px', flexShrink: 0 }}>
-          <h3 className="card-title" style={{ fontSize: '0.85rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 className="card-title" style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             Global Node Fleet <SeededDataBadge />
           </h3>
           <div style={{ fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -246,31 +251,29 @@ export const WidgetRegistry: Record<string, {
     )
   },
   events: {
-    name: 'Security & Contract Events',
-    description: 'Audit log of latest ZKP attestation events and middleware policies.',
+    name: 'Live Attestation Feed',
+    description: 'Streaming audit log of ZKP and BCC transactions.',
     defaultSize: { w: 6, h: 2 },
     component: () => (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', paddingBottom: '12px', flexShrink: 0 }}>
-          <h3 className="card-title" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Security & Contract Events <SeededDataBadge />
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)', padding: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '8px 12px 0', flexShrink: 0 }}>
+          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+            Live Attestation Feed <div style={{ width: '6px', height: '6px', background: 'var(--danger)', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
           </h3>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Last 10 min</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>T-0.00s</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto', padding: '0 8px 8px' }} className="custom-scrollbar">
           {[
-            { time: '10:42:01', type: 'alert', msg: 'Suspicious payload intercepted from DID 0x9f...', icon: <AlertTriangle size={14} color="var(--danger)" /> },
-            { time: '10:41:15', type: 'contract', msg: 'SmartBAA verified for Agent Healthcare-v2', icon: <FileText size={14} color="var(--primary)" /> },
-            { time: '10:39:50', type: 'success', msg: 'ZKP Attestation passed on Base L2 block 149231', icon: <CheckCircle size={14} color="var(--success)" /> },
-            { time: '10:35:12', type: 'alert', msg: 'BCC Middleware quarantined node in us-west-2', icon: <AlertTriangle size={14} color="var(--warning)" /> },
-            { time: '10:30:05', type: 'success', msg: 'Agent Primitives deployed for new agent', icon: <CheckCircle size={14} color="var(--success)" /> },
+            { time: '10:42:01.321', type: 'alert', msg: 'Suspicious payload intercepted from DID 0x9f... Blocked by BCC.', color: 'var(--danger)' },
+            { time: '10:41:15.092', type: 'contract', msg: 'SmartBAA verified for Agent Healthcare-v2. Collateral locked.', color: 'var(--primary)' },
+            { time: '10:39:50.884', type: 'success', msg: 'ZKP Attestation passed on Base L2 block 149231. Anchor confirmed.', color: 'var(--success)' },
+            { time: '10:35:12.110', type: 'warning', msg: 'BCC Middleware quarantined node in us-west-2 due to latency spike.', color: 'var(--warning)' },
+            { time: '10:30:05.405', type: 'success', msg: 'Agent Primitives deployed for new agent [did:intg:0x33b].', color: 'var(--success)' },
+            { time: '10:28:11.992', type: 'contract', msg: 'Market outcome settled on ETH>3500. Escrow distributing.', color: 'var(--gold)' },
           ].map((event, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '8px', background: 'hsla(var(--bg-panel-hover-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.3)', borderRadius: 'var(--radius-md)' }}>
-              <div style={{ marginTop: '2px' }}>{event.icon}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: 'var(--text-primary)', fontSize: '0.8rem', marginBottom: '2px' }}>{event.msg}</div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontFamily: 'var(--font-mono)' }}>{event.time} UTC</div>
-              </div>
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '6px 8px', borderLeft: `2px solid ${event.color}`, background: 'rgba(255,255,255,0.02)', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>{event.time}</div>
+              <div style={{ color: event.color, fontSize: '0.75rem', lineHeight: 1.4 }}>{event.msg}</div>
             </div>
           ))}
         </div>
@@ -311,5 +314,47 @@ export const WidgetRegistry: Record<string, {
     description: 'A customizable text note for system reminders.',
     defaultSize: { w: 4, h: 2 },
     component: NotesWidget
+  },
+  costAnalytics: {
+    name: 'Cost & Token Analytics',
+    description: 'Dual-axis visualization of API spend versus token throughput.',
+    defaultSize: { w: 6, h: 2 },
+    component: () => (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
+          <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Cost & Token Analytics <SeededDataBadge />
+          </h3>
+          <Activity size={18} className="text-muted" />
+        </div>
+        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={COST_DATA} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--danger)" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="var(--danger)" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+              <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} />
+              <YAxis yAxisId="left" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${val}`} />
+              <YAxis yAxisId="right" orientation="right" stroke="var(--text-muted)" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val}M`} />
+              <Tooltip 
+                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
+              <Area yAxisId="left" type="monotone" dataKey="spend" name="Spend ($)" stroke="var(--danger)" strokeWidth={2} fillOpacity={1} fill="url(#colorSpend)" />
+              <Area yAxisId="right" type="monotone" dataKey="tokens" name="Tokens (M)" stroke="var(--primary)" strokeWidth={2} fillOpacity={1} fill="url(#colorTokens)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    )
   }
 };;

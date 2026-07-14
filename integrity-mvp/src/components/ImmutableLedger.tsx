@@ -148,7 +148,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                             borderRadius: 'var(--r-sm)',
                             fontSize: '0.8rem',
                             fontFamily: 'JetBrains Mono, monospace',
-                            color: 'white',
+                            color: 'var(--text-primary)',
                             width: '100%',
                             outline: 'none',
                             transition: 'all 0.2s'
@@ -165,7 +165,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                             padding: '10px 16px', fontSize: '0.7rem', display: 'flex', gap: '8px',
                             alignItems: 'center', background: 'var(--glass-surface-light)',
                             border: '1px solid var(--border)', borderRadius: 'var(--r-xs)',
-                            color: 'white', cursor: 'pointer', fontWeight: 700
+                            color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 700
                         }}
                     >
                         <Download size={14} /> EXPORT
@@ -248,7 +248,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                 >
                                                     {isMobile ? `${log.on_chain_tx_hash.substring(0, 12)}...` : `${log.on_chain_tx_hash.substring(0, 24)}...`}
                                                 </span>
-                                                <span style={{ color: 'white', fontWeight: 800, fontSize: '0.75rem', fontFamily: 'JetBrains Mono, monospace' }}>
+                                                <span style={{ color: 'var(--text-primary)', fontWeight: 800, fontSize: '0.75rem', fontFamily: 'JetBrains Mono, monospace' }}>
                                                     {log.contract_value_intg} <span style={{ color: 'var(--gold)', opacity: 0.6 }}>ITK</span>
                                                 </span>
                                             </div>
@@ -295,7 +295,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         <Terminal size={16} style={{ color: 'var(--gold)' }} />
-                                                        <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'white', letterSpacing: '0.05em' }}>TRANSACTION DETAILS</span>
+                                                        <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-primary)', letterSpacing: '0.05em' }}>TRANSACTION DETAILS</span>
                                                     </div>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); setSelectedTx(null); }}
@@ -322,7 +322,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                                         <div>
                                                             <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Value</div>
-                                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white', marginTop: '2px', fontFamily: 'monospace' }}>
+                                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px', fontFamily: 'monospace' }}>
                                                                 {selectedTx.contract_value_intg} <span style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>ITK</span>
                                                             </div>
                                                         </div>
@@ -396,7 +396,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                                     onChange={e => setDisputeReason(e.target.value)}
                                                                     placeholder="Specify detailed SLA violation or mismatched hash..."
                                                                     required
-                                                                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '4px', padding: '8px', color: 'white', fontSize: '0.75rem', minHeight: '60px', outline: 'none', resize: 'vertical' }}
+                                                                    style={{ width: '100%', background: 'hsla(var(--bg-panel-hsl) / 0.5)', border: '1px solid var(--border)', borderRadius: '4px', padding: '8px', color: 'var(--text-primary)', fontSize: '0.75rem', minHeight: '60px', outline: 'none', resize: 'vertical' }}
                                                                 />
                                                             </div>
                                                             <div>
@@ -405,7 +405,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                                     type="number"
                                                                     value={disputeBond}
                                                                     onChange={e => setDisputeBond(e.target.value)}
-                                                                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '4px', padding: '6px 8px', color: 'white', fontSize: '0.75rem', outline: 'none' }}
+                                                                    style={{ width: '100%', background: 'hsla(var(--bg-panel-hsl) / 0.5)', border: '1px solid var(--border)', borderRadius: '4px', padding: '6px 8px', color: 'var(--text-primary)', fontSize: '0.75rem', outline: 'none' }}
                                                                 />
                                                             </div>
                                                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
@@ -421,7 +421,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                                     type="button" 
                                                                     onClick={() => setIsDisputing(false)}
                                                                     className="btn-outline"
-                                                                    style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 700, borderRadius: '4px', color: 'white', border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
+                                                                    style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 700, borderRadius: '4px', color: 'var(--text-primary)', border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
                                                                 >
                                                                     CANCEL
                                                                 </button>
@@ -430,7 +430,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                     ) : (
                                                         <>
                                                             {/* Merkle Path Diagram */}
-                                                            <div style={{ padding: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
+                                                            <div style={{ padding: '12px', background: 'hsla(var(--bg-panel-hsl) / 0.5)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
                                                                 <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 800 }}>On-Chain State Anchor & Merkle Proof</div>
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontFamily: 'monospace', fontSize: '0.7rem' }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

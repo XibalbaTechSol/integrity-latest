@@ -1,7 +1,6 @@
-import React from 'react';
 import { Network, ShieldCheck, XCircle, Cpu, Database, Key } from 'lucide-react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
-
+import { Handle, Position } from '@xyflow/react';
+import type { NodeProps, Node } from '@xyflow/react';
 export type TraceNodeType = 'root' | 'success' | 'danger' | 'process' | 'database' | 'crypto';
 
 interface TraceNodeData extends Record<string, unknown> {
@@ -91,20 +90,20 @@ const getColor = (type: TraceNodeType) => {
   }
 };
 
-export const TraceNode = ({ data, selected }: NodeProps<any>) => {
+export const TraceNode = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }: NodeProps<Node<TraceNodeData>>) => {
   const { type, title, subtitle } = data as TraceNodeData;
   const active = !!selected;
 
   return (
     <>
-      {type !== 'root' && <Handle type="target" position={Position.Left} style={{ background: '#555', border: 'none' }} />}
-      <div style={getStyles(type, active)}>
+      {type !== 'root' && <Handle type="target" position={targetPosition} style={{ background: '#555', border: 'none' }} />}
+      <div className="glass-panel-hover" style={getStyles(type, active)}>
         <h3 style={{ fontSize: '0.85rem', color: getColor(type), marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           {getIcon(type)} {title}
         </h3>
         <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{subtitle}</p>
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: '#555', border: 'none' }} />
+      <Handle type="source" position={sourcePosition} style={{ background: '#555', border: 'none' }} />
     </>
   );
 };

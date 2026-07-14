@@ -1,28 +1,15 @@
 import { TopBar } from '../components/TopBar';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
-import { XCircle, ShieldCheck, Clock, Activity, Code, Key, Pause, Play } from 'lucide-react';
-import { useState, useEffect, useMemo } from 'react';
-import { TraceNode } from '../components/TraceNode';
+import { XCircle, ShieldCheck, Clock, Activity, Code, Zap, Pause, Play, Wifi, WifiOff } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { TraceNode, type TraceNodeType } from '../components/TraceNode';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Legend } from 'recharts';
 import { TraceAnalysisPanel } from '../components/TraceAnalysisPanel';
-import { ReactFlow, Background, Controls, useNodesState, useEdgesState, BackgroundVariant, type Edge, type Node } from '@xyflow/react';
+import { ReactFlow, Background, Controls, useNodesState, useEdgesState, BackgroundVariant, type Edge, type Node, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
-const INITIAL_STREAM = [
-  { id: 'tx_9821', agent: 'Healthcare Navigator v2', status: 'SUCCESS', time: 'Just now', payload: 'ZK Proof Verified' },
-  { id: 'tx_9820', agent: 'DeFi Arbitrage Bot', status: 'QUARANTINED', time: '2s ago', payload: 'Slippage > 5%' },
-  { id: 'tx_9819', agent: 'Clinical Data Summarizer', status: 'SUCCESS', time: '12s ago', payload: 'HIPAA Context Active' },
-  { id: 'tx_9818', agent: 'Healthcare Navigator v2', status: 'SUCCESS', time: '45s ago', payload: 'Telemetry Scanned' },
-  { id: 'tx_9817', agent: 'Financial Auditor', status: 'BLOCKED', time: '1m ago', payload: 'Unauthorized Subnet' },
-];
-
-const GRAPH_NODES = [
-  { id: 'node-1', type: 'root' as const, title: 'Root Inference', subtitle: 'Analyze patient telemetry.', x: 150, y: 200, to: ['node-2', 'node-3'], latency: '45ms', promptTokens: 420, compTokens: 80 },
-  { id: 'node-2', type: 'danger' as const, title: 'Hypothesis Rejected', subtitle: 'Direct EHR query blocked by OPA.', x: 350, y: 100, to: [], latency: '120ms', promptTokens: 300, compTokens: 20 },
-  { id: 'node-3', type: 'success' as const, title: 'Hypothesis Accepted', subtitle: 'Valid context path identified.', x: 350, y: 300, to: ['node-4'], latency: '85ms', promptTokens: 120, compTokens: 150 },
-  { id: 'node-4', type: 'crypto' as const, title: 'ZK Proof Generation', subtitle: 'Compliance assertion generated.', x: 550, y: 200, to: ['node-5'], latency: '850ms', promptTokens: 0, compTokens: 0 },
-  { id: 'node-5', type: 'process' as const, title: 'Final Output', subtitle: 'Response backed by crypto proof.', x: 750, y: 200, to: [], latency: '15ms', promptTokens: 50, compTokens: 120 }
-];
+import dagre from 'dagre';
+import { oracle, type SpanTreeNode } from '../services/oracle';
+import { useOracleStream } from '../hooks/useOracleStream';
 
 const LATENCY_METRICS = [
   { time: '10:00', avg: 120, max: 250 },
@@ -43,28 +30,136 @@ const TOKEN_METRICS = [
 
 const nodeTypes = { traceNode: TraceNode };
 
-const initialNodes: Node[] = [
-  { id: 'node-1', type: 'traceNode', position: { x: 50, y: 200 }, data: { type: 'root', title: 'Root Inference', subtitle: 'Analyze patient telemetry.' } },
-  { id: 'node-2', type: 'traceNode', position: { x: 350, y: 100 }, data: { type: 'danger', title: 'Hypothesis Rejected', subtitle: 'Direct EHR query blocked by OPA.' } },
-  { id: 'node-3', type: 'traceNode', position: { x: 350, y: 300 }, data: { type: 'success', title: 'Hypothesis Accepted', subtitle: 'Valid context path identified.' } },
-  { id: 'node-4', type: 'traceNode', position: { x: 650, y: 200 }, data: { type: 'crypto', title: 'ZK Proof Generation', subtitle: 'Compliance assertion generated.' } },
-  { id: 'node-5', type: 'traceNode', position: { x: 950, y: 200 }, data: { type: 'process', title: 'Final Output', subtitle: 'Response backed by crypto proof.' } }
-];
+const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'LR') => {
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: 'node-1', target: 'node-2', animated: true, style: { stroke: 'var(--danger)', strokeWidth: 2 } },
-  { id: 'e1-3', source: 'node-1', target: 'node-3', animated: true, style: { stroke: 'var(--success)', strokeWidth: 2 } },
-  { id: 'e3-4', source: 'node-3', target: 'node-4', animated: true, style: { stroke: 'var(--gold)', strokeWidth: 2 } },
-  { id: 'e4-5', source: 'node-4', target: 'node-5', animated: true, style: { stroke: 'var(--primary)', strokeWidth: 2 } }
-];
+  const nodeWidth = 280;
+  const nodeHeight = 100;
+
+  dagreGraph.setGraph({ rankdir: direction, ranksep: 120, nodesep: 80 });
+
+  nodes.forEach((node) => {
+    dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+  });
+
+  edges.forEach((edge) => {
+    dagreGraph.setEdge(edge.source, edge.target);
+  });
+
+  dagre.layout(dagreGraph);
+
+  const newNodes = nodes.map((node) => {
+    const nodeWithPosition = dagreGraph.node(node.id);
+    return {
+      ...node,
+      targetPosition: direction === 'LR' ? Position.Left : Position.Top,
+      sourcePosition: direction === 'LR' ? Position.Right : Position.Bottom,
+      position: {
+        x: nodeWithPosition.x - nodeWidth / 2,
+        y: nodeWithPosition.y - nodeHeight / 2,
+      },
+    };
+  });
+
+  return { nodes: newNodes, edges };
+};
+
+/** Maps a real span's status/position in the tree to the same visual vocabulary TraceNode already uses. */
+function spanNodeType(span: SpanTreeNode, isRoot: boolean): TraceNodeType {
+  if (isRoot) return 'root';
+  if (span.status_code === 'STATUS_CODE_ERROR') return 'danger';
+  if (span.status_code === 'STATUS_CODE_OK') return 'success';
+  return 'process';
+}
+
+/** Flattens the real nested span tree (from GET /v1/traces/{trace_id}) into ReactFlow nodes/edges. */
+function treeToFlow(roots: SpanTreeNode[]): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+
+  function visit(span: SpanTreeNode, isRoot: boolean) {
+    nodes.push({
+      id: span.span_id,
+      type: 'traceNode',
+      position: { x: 0, y: 0 },
+      data: { type: spanNodeType(span, isRoot), title: span.name, subtitle: `${span.duration_ms}ms · ${span.kind.replace('SPAN_KIND_', '')}` },
+    });
+    for (const child of span.children) {
+      edges.push({
+        id: `${span.span_id}-${child.span_id}`,
+        source: span.span_id,
+        target: child.span_id,
+        animated: true,
+        style: { stroke: child.status_code === 'STATUS_CODE_ERROR' ? 'var(--danger)' : 'var(--primary)', strokeWidth: 2 },
+      });
+      visit(child, false);
+    }
+  }
+
+  roots.forEach((r) => visit(r, true));
+  return { nodes, edges };
+}
+
+function formatStreamTime(iso: string): string {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 5) return 'Just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  return `${Math.round(seconds / 60)}m ago`;
+}
 
 export const ChainOfThoughtPage = () => {
   const [activeTab, setActiveTab] = useState(1);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [activeNodeId, setActiveNodeId] = useState<string>('node-1');
-  const [stream, setStream] = useState(INITIAL_STREAM);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isLive, setIsLive] = useState(true);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [traceTree, setTraceTree] = useState<{ roots: SpanTreeNode[]; span_count: number; truncated: boolean } | null>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
+
+  // Real SSE stream (all agents) — see backend/src/stream.rs. Doubles as both the Live
+  // Stream tab's data source and how we discover trace_ids to offer in the Historical
+  // Traces tab (there's no "list recent traces" endpoint, only get-by-id).
+  const { events, connected } = useOracleStream(undefined, 100);
+  const displayedEvents = isLive ? events : events.slice(0, 0);
+
+  const recentTraceIds = useMemo(() => {
+    const seen = new Map<string, string>(); // trace_id -> most recent span name
+    for (const e of events) {
+      if (e.type === 'OtelSpan' && !seen.has(e.trace_id)) seen.set(e.trace_id, e.name);
+    }
+    return Array.from(seen.entries());
+  }, [events]);
+
+  useEffect(() => {
+    if (!selectedTraceId && recentTraceIds.length > 0) {
+      setSelectedTraceId(recentTraceIds[0][0]);
+    }
+  }, [recentTraceIds, selectedTraceId]);
+
+  useEffect(() => {
+    if (!selectedTraceId) return;
+    let cancelled = false;
+    setTraceError(null);
+    oracle
+      .getTraceTree(selectedTraceId)
+      .then((tree) => {
+        if (cancelled) return;
+        setTraceTree(tree);
+        const { nodes: flowNodes, edges: flowEdges } = treeToFlow(tree.roots);
+        const layouted = getLayoutedElements(flowNodes, flowEdges, 'LR');
+        setNodes(layouted.nodes);
+        setEdges(layouted.edges);
+        setActiveNodeId(flowNodes[0]?.id ?? null);
+      })
+      .catch((err) => {
+        if (!cancelled) setTraceError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTraceId, setNodes, setEdges]);
 
   // Sync selected state for ReactFlow nodes
   useEffect(() => {
@@ -76,132 +171,134 @@ export const ChainOfThoughtPage = () => {
     );
   }, [activeNodeId, setNodes]);
 
-  const onNodeClick = useCallback((_: any, node: Node) => {
+  const onNodeClick = useCallback((_: unknown, node: Node) => {
     setActiveNodeId(node.id);
   }, []);
-  const activeNode = useMemo(() => GRAPH_NODES.find(n => n.id === activeNodeId) || GRAPH_NODES[0], [activeNodeId]);
 
-  // Simulate live stream
-  useEffect(() => {
-    if (activeTab === 0 && isLive) {
-      const interval = setInterval(() => {
-        setStream(prev => {
-          const isSuccess = Math.random() > 0.3;
-          const agents = ['Healthcare Navigator v2', 'DeFi Arbitrage Bot', 'Clinical Data Summarizer', 'Financial Auditor'];
-          const payloads = isSuccess 
-            ? ['ZK Proof Verified', 'HIPAA Context Active', 'Telemetry Scanned', 'Transaction Signed'] 
-            : ['Slippage > 5%', 'Unauthorized Subnet', 'Signature Mismatch', 'OPA Policy Violation'];
-          
-          const newTx = { 
-            id: `tx_${Math.floor(Math.random() * 10000)}`, 
-            agent: agents[Math.floor(Math.random() * agents.length)], 
-            status: isSuccess ? 'SUCCESS' : 'QUARANTINED', 
-            time: 'Just now',
-            payload: payloads[Math.floor(Math.random() * payloads.length)]
-          };
-          
-          return [newTx, ...prev.map(p => ({...p, time: p.time.includes('ago') ? p.time : '2s ago'}))].slice(0, 15);
-        });
-      }, 2500);
-      return () => clearInterval(interval);
+  const flatSpans = useMemo(() => {
+    const out: SpanTreeNode[] = [];
+    function walk(s: SpanTreeNode) {
+      out.push(s);
+      s.children.forEach(walk);
     }
-  }, [activeTab, isLive]);
+    traceTree?.roots.forEach(walk);
+    return out;
+  }, [traceTree]);
+  const activeSpan = useMemo(() => flatSpans.find((s) => s.span_id === activeNodeId) ?? null, [flatSpans, activeNodeId]);
 
   return (
     <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <TopBar title="AI Chain of Thought Traces">
-        <SeededDataBadge />
-      </TopBar>
-      
-      <div style={{ padding: '0 24px', display: 'flex', gap: '24px', borderBottom: '1px solid var(--border-color)', marginBottom: '24px' }}>
+      <TopBar title="AI Chain of Thought Traces" />
+
+      <div className="custom-scrollbar" style={{ padding: '0 24px', display: 'flex', gap: '24px', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
         {['Live Stream', 'Historical Traces', 'Metrics', 'Time-Travel Debugger'].map((tab, idx) => (
-          <div 
+          <div
             key={tab}
             onClick={() => setActiveTab(idx)}
-            style={{ 
+            style={{
               color: activeTab === idx ? 'white' : 'var(--text-secondary)',
               borderBottom: activeTab === idx ? '2px solid var(--accent-primary)' : '2px solid transparent',
               paddingBottom: '12px',
               cursor: 'pointer',
               fontSize: '0.9rem',
-              fontWeight: activeTab === idx ? 600 : 400
+              fontWeight: activeTab === idx ? 600 : 400,
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
             }}
           >
             {tab}
+            {(idx === 2 || idx === 3) && <SeededDataBadge />}
           </div>
         ))}
       </div>
 
       <div className="page-content" style={{ flex: 1, display: 'flex', gap: 'var(--space-6)', overflow: 'hidden', paddingTop: 0 }}>
-        
         {/* Main Area */}
         <div className="card" style={{ flex: '1 1 70%', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at center, rgba(59, 130, 246, 0.05) 0%, transparent 70%)', display: 'flex', flexDirection: 'column' }}>
-          
-          {/* TAB 0: LIVE STREAM */}
+          {/* TAB 0: LIVE STREAM — real SSE (/v1/stream) */}
           {activeTab === 0 && (
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isLive ? 'var(--success)' : 'var(--warning)' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: isLive ? 'var(--success)' : 'var(--warning)', animation: isLive ? 'pulse 2s infinite' : 'none' }}></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: connected ? 'var(--success)' : 'var(--warning)' }}>
+                  {connected ? <Wifi size={14} /> : <WifiOff size={14} />}
                   <span style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                    {isLive ? 'Listening to Network WebSocket' : 'Stream Paused'}
+                    {connected ? (isLive ? 'Live — real oracle event stream' : 'Connected, display paused') : 'Connecting…'}
                   </span>
                 </div>
-                
-                <button 
-                  className="btn btn-secondary glass-panel-hover" 
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }}
-                  onClick={() => setIsLive(!isLive)}
-                >
+
+                <button className="btn btn-secondary glass-panel-hover" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px' }} onClick={() => setIsLive(!isLive)}>
                   {isLive ? <Pause size={14} /> : <Play size={14} />}
                   {isLive ? 'Pause' : 'Resume'}
                 </button>
               </div>
-              
+
+              {displayedEvents.length === 0 && (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', padding: '48px 0' }}>
+                  No events yet — waiting for real telemetry/OTLP activity from any agent.
+                </div>
+              )}
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {stream.map((tx, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '8px', transition: 'all 0.3s ease' }}>
-                    <div style={{ color: tx.status === 'SUCCESS' ? 'var(--success)' : 'var(--danger)' }}>
-                      {tx.status === 'SUCCESS' ? <ShieldCheck size={20} /> : <XCircle size={20} />}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ color: 'white', fontWeight: 500 }}>{tx.agent}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'monospace', display: 'flex', gap: '12px' }}>
-                        <span>{tx.id}</span>
-                        <span>•</span>
-                        <span style={{ color: 'var(--text-secondary)' }}>{tx.payload}</span>
+                {displayedEvents.map((ev, i) => {
+                  const isError = ev.type === 'TelemetryEvent' && ev.flagged;
+                  const label = ev.type === 'TelemetryEvent' ? 'Telemetry ingested' : ev.type === 'OtelSpan' ? `Span: ${ev.name}` : `AIS updated: ${ev.ais.toFixed(1)}`;
+                  const detail = ev.type === 'OtelSpan' ? ev.trace_id : ev.type === 'TelemetryEvent' ? (ev.flagged ? 'Flagged' : 'Clean') : `ZK boost ${ev.zk_boost}×`;
+                  return (
+                    <div key={`${ev.agent_id}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                      <div style={{ color: isError ? 'var(--danger)' : 'var(--success)' }}>{isError ? <XCircle size={20} /> : ev.type === 'AisUpdate' ? <Zap size={20} /> : <ShieldCheck size={20} />}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{ev.agent_id}</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'monospace', display: 'flex', gap: '12px' }}>
+                          <span>{label}</span>
+                          <span>•</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{detail}</span>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ color: isError ? 'var(--danger)' : 'var(--success)', fontSize: '0.75rem', fontWeight: 600, padding: '4px 8px', background: isError ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderRadius: '4px', display: 'inline-block' }}>{ev.type}</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>{'created_at' in ev ? formatStreamTime(ev.created_at) : ''}</div>
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ color: tx.status === 'SUCCESS' ? 'var(--success)' : 'var(--danger)', fontSize: '0.75rem', fontWeight: 600, padding: '4px 8px', background: tx.status === 'SUCCESS' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(244, 63, 94, 0.1)', borderRadius: '4px', display: 'inline-block' }}>
-                        {tx.status}
-                      </div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px' }}>{tx.time}</div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {/* TAB 1: HISTORICAL TRACES (GRAPH) */}
+          {/* TAB 1: HISTORICAL TRACES — real GET /v1/traces/{trace_id} */}
           {activeTab === 1 && (
-            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              <ReactFlow 
-                nodes={nodes}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodeClick={onNodeClick}
-                fitView
-                colorMode="dark"
-                defaultEdgeOptions={{ type: 'smoothstep' }}
-                proOptions={{ hideAttribution: true }}
-              >
-                <Background color="var(--border-color)" variant={BackgroundVariant.Dots} />
-                <Controls style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', fill: 'var(--text-muted)' }} />
-              </ReactFlow>
+            <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Trace:</span>
+                {recentTraceIds.length === 0 ? (
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No traces observed yet this session — send real OTLP spans to see them here.</span>
+                ) : (
+                  <select value={selectedTraceId ?? ''} onChange={(e) => setSelectedTraceId(e.target.value)} className="input" style={{ fontSize: '0.8rem', padding: '4px 8px', maxWidth: '480px' }}>
+                    {recentTraceIds.map(([id, name]) => (
+                      <option key={id} value={id}>
+                        {id.slice(0, 12)}… — {name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {traceTree && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {traceTree.span_count} spans{traceTree.truncated ? ' (truncated)' : ''}
+                  </span>
+                )}
+              </div>
+              {traceError ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', fontSize: '0.85rem' }}>{traceError}</div>
+              ) : nodes.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Select a trace above to view its real span tree.</div>
+              ) : (
+                <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={onNodeClick} fitView colorMode="dark" defaultEdgeOptions={{ type: 'smoothstep' }} proOptions={{ hideAttribution: true }}>
+                  <Background color="var(--border-color)" variant={BackgroundVariant.Dots} />
+                  <Controls style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', fill: 'var(--text-muted)' }} />
+                </ReactFlow>
+              )}
             </div>
           )}
 
@@ -226,7 +323,7 @@ export const ChainOfThoughtPage = () => {
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
                         <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
                         <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
                           itemStyle={{ color: 'var(--text-primary)' }}
                         />
@@ -246,7 +343,7 @@ export const ChainOfThoughtPage = () => {
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
                         <XAxis dataKey="agent" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
                         <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                        <Tooltip 
+                        <Tooltip
                           cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                           contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '8px' }}
                         />
@@ -272,65 +369,36 @@ export const ChainOfThoughtPage = () => {
         {/* Side Panel: Trace Details */}
         <div className="card" style={{ flex: '1 1 30%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <h2 className="card-title" style={{ marginBottom: '24px' }}>Trace Details</h2>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ background: 'var(--bg-main)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', transition: 'all 0.3s ease' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><Clock size={12} style={{ display: 'inline', marginRight: '4px' }}/> Node Latency</span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary)' }}>{activeNode.latency}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><Activity size={12} style={{ display: 'inline', marginRight: '4px' }}/> Prompt Tokens</span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{activeNode.promptTokens}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><Activity size={12} style={{ display: 'inline', marginRight: '4px' }}/> Completion Tokens</span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--gold)' }}>{activeNode.compTokens}</span>
-              </div>
-            </div>
 
-            {activeNode.type === 'crypto' && (
-              <div style={{ background: 'rgba(212, 175, 55, 0.05)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--gold)' }}>
-                <h3 style={{ fontSize: '0.85rem', color: 'var(--gold)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Key size={14} /> Cryptographic Proof Valid
-                </h3>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                  0x8f2c...4b1e (Noir Circuit: HIPAA_v2)
+          {activeSpan ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ background: 'var(--bg-main)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><Clock size={12} style={{ display: 'inline', marginRight: '4px' }}/> Duration</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary)' }}>{activeSpan.duration_ms}ms</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><Activity size={12} style={{ display: 'inline', marginRight: '4px' }}/> Kind</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{activeSpan.kind.replace('SPAN_KIND_', '')}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}><ShieldCheck size={12} style={{ display: 'inline', marginRight: '4px' }}/> Status</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: activeSpan.status_code === 'STATUS_CODE_ERROR' ? 'var(--danger)' : 'var(--success)' }}>{activeSpan.status_code.replace('STATUS_CODE_', '')}</span>
                 </div>
               </div>
-            )}
 
-            <div style={{ marginTop: '16px', flex: 1 }}>
-              <h3 style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}><Code size={14}/> Raw Payload</h3>
-              <div style={{ background: '#0f111a', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid #1f2937', height: '100%', minHeight: '250px' }}>
-                <pre style={{ margin: 0, fontSize: '0.75rem', color: '#e2e8f0', fontFamily: 'monospace', whiteSpace: 'pre-wrap', overflowX: 'auto', wordBreak: 'break-word' }}>
-{activeNodeId === 'node-1' ? `{
-  "context_id": "ctx_992",
-  "action": "evaluate_telemetry",
-  "enclave_assertion": true
-}` : activeNodeId === 'node-2' ? `{
-  "action": "query_ehr",
-  "error": "OPA_POLICY_VIOLATION",
-  "reason": "Direct EHR access requires 2FA token.",
-  "severity": "CRITICAL"
-}` : activeNodeId === 'node-3' ? `{
-  "action": "synthesize_context",
-  "data_sources": ["vital_signs", "lab_results"],
-  "inference_confidence": 0.94
-}` : activeNodeId === 'node-4' ? `{
-  "circuit": "hipaa_compliance",
-  "public_inputs": ["0x9a...", "0x2b..."],
-  "proof_hash": "0x8f2c...4b1e",
-  "verifier": "0xBaseL2Contract"
-}` : `{
-  "status": "PROCESSING_COMPLETE",
-  "node_id": "${activeNodeId}",
-  "output_hash": "0x1122...3344"
-}`}
-                </pre>
+              <div style={{ marginTop: '16px', flex: 1 }}>
+                <h3 style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}><Code size={14}/> Real Span Attributes</h3>
+                <div style={{ background: '#0f111a', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid #1f2937', height: '100%', minHeight: '250px' }}>
+                  <pre style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', overflowX: 'auto', wordBreak: 'break-word' }}>
+                    {JSON.stringify({ span_id: activeSpan.span_id, agent_id: activeSpan.agent_id, attributes: activeSpan.attributes }, null, 2)}
+                  </pre>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Select a span node from the Historical Traces tab to see its real attributes here.</div>
+          )}
         </div>
 
       </div>

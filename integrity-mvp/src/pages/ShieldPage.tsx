@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
-import { ShieldCheck, ShieldAlert, FileText, Lock, Activity, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, FileText, Lock, Activity, AlertTriangle, Award } from 'lucide-react';
 import { NotionDatabase } from '../components/NotionDatabase';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useAccount } from 'wagmi';
@@ -75,8 +75,9 @@ const QUARANTINE_COLUMNS: ColumnDef<any>[] = [
   { accessorKey: 'status', header: 'Status', cell: info => <span className="badge badge-danger">{info.getValue() as string}</span> },
 ];
 
-type ShieldSubTab = 'Smart BAAs' | 'PHI Access Gates' | 'Audit & Compliance' | 'Quarantine Zone';
+type ShieldSubTab = 'Stability Certification' | 'Smart BAAs' | 'PHI Access Gates' | 'Audit & Compliance' | 'Quarantine Zone';
 const SUB_TABS: { id: ShieldSubTab; icon: React.ReactNode }[] = [
+  { id: 'Stability Certification', icon: <Award size={14} /> },
   { id: 'Smart BAAs', icon: <FileText size={14} /> },
   { id: 'PHI Access Gates', icon: <Lock size={14} /> },
   { id: 'Audit & Compliance', icon: <Activity size={14} /> },
@@ -84,7 +85,7 @@ const SUB_TABS: { id: ShieldSubTab; icon: React.ReactNode }[] = [
 ];
 
 export const ShieldPage = () => {
-  const [activeTab, setActiveTab] = useState<ShieldSubTab>('Smart BAAs');
+  const [activeTab, setActiveTab] = useState<ShieldSubTab>('Stability Certification');
   const { address } = useAccount();
   const { selectedAgent } = useAgent();
   const { addToast } = useToast();
@@ -300,12 +301,73 @@ export const ShieldPage = () => {
 
         {/* ── Tab Content ── */}
         <div>
+          {activeTab === 'Stability Certification' && (
+            <div className="grid grid-2" style={{ gap: '24px' }}>
+              <div className="card col-span-2">
+                <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}><Award size={18} color="var(--warning)"/> Agent Stability Profile <SeededDataBadge /></h2>
+                
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                  
+                  {/* Tier Badge */}
+                  <div style={{ flex: '1 1 30%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current Stability Tier</div>
+                    <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(16,185,129,0.2) 0%, transparent 70%)', border: '2px solid var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(16,185,129,0.1)' }}>
+                      <span style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', textShadow: '0 0 10px rgba(16,185,129,0.5)' }}>AAA</span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--success)', textAlign: 'center' }}>Low Risk • Reduced Collateral Requirements</div>
+                  </div>
+
+                  {/* Health Factors */}
+                  <div style={{ flex: '1 1 60%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>BAA Compliance Ratio</span>
+                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>99.9%</span>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: '99.9%', height: '100%', background: 'var(--success)' }}></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>Prediction Accuracy (Markets)</span>
+                        <span style={{ color: 'var(--warning)', fontWeight: 700 }}>82.4%</span>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: '82.4%', height: '100%', background: 'var(--warning)' }}></div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>Collateral Health Factor</span>
+                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>1.8x</span>
+                      </div>
+                      <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: '90%', height: '100%', background: 'var(--success)' }}></div>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-color)' }}>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <strong>Note:</strong> Agents maintaining AAA tier receive a 50% reduction in required ITK collateral for new Smart BAAs and Escrow pools. A single slashing event will downgrade the agent to B Tier.
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'Smart BAAs' && (
             <div className="grid grid-2" style={{ gap: '24px' }}>
               <div className="card col-span-2">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                   <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><FileText size={18} color="var(--warning)"/> Smart BAA Registry</h2>
-                  <button className="btn" style={{ background: 'var(--accent-primary)', color: 'white', padding: '6px 12px', fontSize: '0.8rem', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Creating a BAA requires acting as the covered entity, a persona this dashboard doesn't represent yet">
+                  <button className="btn" style={{ background: 'var(--accent-primary)', color: 'var(--text-primary)', padding: '6px 12px', fontSize: '0.8rem', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Creating a BAA requires acting as the covered entity, a persona this dashboard doesn't represent yet">
                     + Propose BAA Contract
                   </button>
                 </div>
@@ -354,7 +416,7 @@ export const ShieldPage = () => {
                     </div>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginBottom: '16px', lineHeight: 1.4, wordBreak: 'break-word' }}>{v.detail}</p>
                     {v.status === 'pending' ? (
-                      <button className="btn" style={{ width: '100%', background: 'var(--danger)', color: 'white', border: 'none', padding: '8px', fontSize: '0.8rem' }} onClick={() => handleSlashViolation(v.id)}>Slash Stake</button>
+                      <button className="btn" style={{ width: '100%', background: 'var(--danger)', color: 'var(--text-primary)', border: 'none', padding: '8px', fontSize: '0.8rem' }} onClick={() => handleSlashViolation(v.id)}>Slash Stake</button>
                     ) : (
                       <span className="badge badge-danger">Slashed</span>
                     )}

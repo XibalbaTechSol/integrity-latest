@@ -1207,6 +1207,27 @@ pub struct WalletPositionDto {
     pub won: Option<bool>,
 }
 
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct TransactionDto {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub tx_type: String,
+    pub asset: String,
+    pub amount: String,
+    pub usd: Option<String>,
+    pub agent: String,
+    pub status: String,
+    pub time: String,
+}
+
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct AllowanceDto {
+    pub agent: String,
+    pub limit: String,
+    pub spent: f64,
+    pub status: String,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WalletResponse {
     pub agent_id: String,
@@ -1221,7 +1242,8 @@ pub struct WalletResponse {
     /// Transfer/stake/payout history requires indexing on-chain events (`Transfer`,
     /// `PositionEntered`, `PayoutClaimed`, ...), which this pass does not build. `null`,
     /// never a fabricated transaction list. See `docs/wiki/entities/integrity-oracle.md`.
-    pub transaction_history: Option<Vec<serde_json::Value>>,
+    pub transaction_history: Option<Vec<TransactionDto>>,
+    pub allowances: Option<Vec<AllowanceDto>>,
 }
 
 #[utoipa::path(
@@ -1271,6 +1293,7 @@ pub async fn get_wallet(State(state): State<AppState>, Path(id): Path<String>) -
         itk_balance: balance.to_string(),
         open_positions,
         transaction_history: None,
+        allowances: None,
     }))
 }
 

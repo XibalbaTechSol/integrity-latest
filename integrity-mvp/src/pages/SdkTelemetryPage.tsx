@@ -119,7 +119,7 @@ export const SdkTelemetryPage = () => {
                 <div style={{ color: 'var(--text-muted)' }}>No telemetry events found for this agent.</div>
               )}
               {!loading && !error && telemetry.map((event, idx) => (
-                <div key={event.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div key={event.id || idx} style={{ borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', paddingBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: 'var(--text-muted)' }}>{new Date(event.created_at).toLocaleTimeString()}</span>
                     <span style={{ color: event.flagged ? 'var(--danger)' : 'var(--success)', fontWeight: 'bold' }}>

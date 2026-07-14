@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Save, Folder, File, Cpu, ShieldCheck } from 'lucide-react';
+import { Terminal, Save, Folder, File, Cpu, ShieldCheck, Code, ChevronRight, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { TopBar } from '../components/TopBar';
 import { oracle } from '../services/oracle';
@@ -8,7 +8,12 @@ import { REAL_FILES } from '../services/contractFiles';
 
 export const ContractsPage = () => {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [activeItem, setActiveItem] = useState<{ type: 'contract' | 'agent', id: string, name: string } | null>(null);
+  const [activeContract, setActiveContract] = useState<{ id: string, name: string } | null>(null);
+  const [activeAgent, setActiveAgent] = useState<{ id: string, name: string } | null>(null);
+  
+  const [localFiles, setLocalFiles] = useState(REAL_FILES);
+  const [isContractsOpen, setIsContractsOpen] = useState(true);
+  const [isAgentsOpen, setIsAgentsOpen] = useState(true);
   
   const [agentPrimitives, setAgentPrimitives] = useState<any | null>(null);
   const [agentAis, setAgentAis] = useState<any | null>(null);
@@ -25,7 +30,7 @@ export const ContractsPage = () => {
     
     // Default to the first contract if available
     if (REAL_FILES.length > 0) {
-      setActiveItem({ type: 'contract', id: REAL_FILES[0].name, name: REAL_FILES[0].name });
+      setActiveContract({ id: REAL_FILES[0].name, name: REAL_FILES[0].name });
     }
   }, []);
 
@@ -40,7 +45,7 @@ export const ContractsPage = () => {
   };
 
   const handleSelectAgent = async (id: string) => {
-    setActiveItem({ type: 'agent', id, name: `Agent ${id.substring(0, 8)}...` });
+    setActiveAgent({ id, name: `Agent ${id.substring(0, 8)}...` });
     setIsLoadingAgent(true);
     setAgentPrimitives(null);
     setAgentAis(null);
@@ -61,18 +66,52 @@ export const ContractsPage = () => {
   };
 
   const handleSelectContract = (name: string) => {
-    setActiveItem({ type: 'contract', id: name, name });
+    setActiveContract({ id: name, name });
     appendLog(`[system] Opened contract ${name}`);
   };
 
   const getContractCode = (name: string) => {
-    return REAL_FILES.find(f => f.name === name)?.content || '// Contract not found';
+    return localFiles.find(f => f.name === name)?.content || '// Contract not found';
+  };
+
+  const handleEditorChange = (value: string | undefined) => {
+    if (activeContract && value !== undefined) {
+      setLocalFiles(localFiles.map(f => f.name === activeContract.id ? { ...f, content: value } : f));
+    }
+  };
+
+  const handleNewFile = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const name = prompt('Enter new file name (e.g., MyContract.sol):');
+    if (name) {
+      if (localFiles.some(f => f.name === name)) {
+        alert('File already exists!');
+        return;
+      }
+      const newFile = { name, content: '// New Contract\\n' };
+      setLocalFiles([...localFiles, newFile]);
+      setActiveContract({ id: name, name });
+      appendLog(`[system] Created new file ${name}`);
+      setIsContractsOpen(true);
+    }
+  };
+
+  const handleDeleteFile = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`Are you sure you want to delete ${name}?`)) {
+      setLocalFiles(localFiles.filter(f => f.name !== name));
+      if (activeContract?.id === name) {
+        setActiveContract(null);
+      }
+      appendLog(`[system] Deleted file ${name}`);
+    }
   };
 
   return (
-    <div className="main-content legacy-ide-theme" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', backgroundColor: 'var(--bg-main)', color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}>
+    <div className="main-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', backgroundColor: 'var(--bg-main)', color: 'var(--text-primary)' }}>
       <TopBar title="Smart Contracts & Architecture" />
 
+      <div className="legacy-ide-theme" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', fontFamily: 'inherit' }}>
       {/* IDE Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', backgroundColor: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -103,33 +142,70 @@ export const ContractsPage = () => {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             
             {/* Smart Contracts Folder */}
-            <div style={{ padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-              <Folder size={14} style={{ color: 'var(--gold)' }} /> src/contracts
+            <div 
+              onClick={() => setIsContractsOpen(!isContractsOpen)}
+              style={{ padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'background-color 0.2s', borderRadius: '4px' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-panel-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {isContractsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <Folder size={14} style={{ color: 'var(--gold)' }} /> src/contracts
+              </div>
+              <Plus 
+                size={14} 
+                style={{ cursor: 'pointer', color: 'var(--text-muted)' }} 
+                onClick={handleNewFile}
+                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+              />
             </div>
-            {REAL_FILES.map(file => (
+            
+            {isContractsOpen && localFiles.map(file => (
               <div 
                 key={file.name}
                 onClick={() => handleSelectContract(file.name)}
                 style={{ 
-                  padding: '4px 16px 4px 32px', 
+                  padding: '4px 8px 4px 32px', 
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  justifyContent: 'space-between',
                   fontSize: '13px',
-                  backgroundColor: activeItem?.id === file.name ? 'var(--bg-panel-hover)' : 'transparent',
-                  color: activeItem?.id === file.name ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                  backgroundColor: activeContract?.id === file.name ? 'var(--bg-panel-hover)' : 'transparent',
+                  color: activeContract?.id === file.name ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  borderLeft: activeContract?.id === file.name ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  transition: 'background-color 0.2s'
                 }}
+                onMouseEnter={(e) => { if (activeContract?.id !== file.name) e.currentTarget.style.backgroundColor = 'var(--bg-panel-hover)' }}
+                onMouseLeave={(e) => { if (activeContract?.id !== file.name) e.currentTarget.style.backgroundColor = 'transparent' }}
               >
-                <File size={14} style={{ color: activeItem?.id === file.name ? 'var(--accent-primary)' : 'var(--text-muted)' }} /> {file.name}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                  <File size={14} style={{ color: activeContract?.id === file.name ? 'var(--accent-primary)' : 'var(--text-muted)', flexShrink: 0 }} /> 
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                </div>
+                <Trash2 
+                  size={12} 
+                  style={{ color: 'var(--text-muted)', opacity: activeContract?.id === file.name ? 1 : 0.4, cursor: 'pointer', flexShrink: 0 }} 
+                  onClick={(e) => handleDeleteFile(file.name, e)}
+                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--danger)'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+                />
               </div>
             ))}
 
             {/* Connected Agents Folder */}
-            <div style={{ padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '16px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+            <div 
+              onClick={() => setIsAgentsOpen(!isAgentsOpen)}
+              style={{ padding: '4px 8px', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '16px', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', transition: 'background-color 0.2s', borderRadius: '4px' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-panel-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            >
+              {isAgentsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               <Folder size={14} style={{ color: 'var(--primary)' }} /> connected_agents
             </div>
-            {agents.map(agent => (
+            
+            {isAgentsOpen && agents.map(agent => (
               <div 
                 key={agent.id}
                 onClick={() => handleSelectAgent(agent.id)}
@@ -140,11 +216,15 @@ export const ContractsPage = () => {
                   alignItems: 'center',
                   gap: '8px',
                   fontSize: '13px',
-                  backgroundColor: activeItem?.id === agent.id ? 'var(--bg-panel-hover)' : 'transparent',
-                  color: activeItem?.id === agent.id ? 'var(--accent-primary)' : 'var(--text-secondary)'
+                  backgroundColor: activeAgent?.id === agent.id ? 'var(--bg-panel-hover)' : 'transparent',
+                  color: activeAgent?.id === agent.id ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  borderLeft: activeAgent?.id === agent.id ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  transition: 'background-color 0.2s'
                 }}
+                onMouseEnter={(e) => { if (activeAgent?.id !== agent.id) e.currentTarget.style.backgroundColor = 'var(--bg-panel-hover)' }}
+                onMouseLeave={(e) => { if (activeAgent?.id !== agent.id) e.currentTarget.style.backgroundColor = 'transparent' }}
               >
-                <Cpu size={14} style={{ color: activeItem?.id === agent.id ? 'var(--accent-primary)' : 'var(--text-muted)' }} /> {agent.id.substring(0, 8)}...{agent.id.substring(agent.id.length - 4)}
+                <Cpu size={14} style={{ color: activeAgent?.id === agent.id ? 'var(--accent-primary)' : 'var(--text-muted)' }} /> {agent.id.substring(0, 8)}...{agent.id.substring(agent.id.length - 4)}
               </div>
             ))}
           </div>
@@ -154,27 +234,42 @@ export const ContractsPage = () => {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-main)', minHeight: 0 }}>
           <div style={{ display: 'flex', backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}>
             <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-main)', color: 'var(--accent-primary)', fontSize: '13px', borderTop: '2px solid var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <File size={14} /> {activeItem?.name || 'No file selected'}
+              <File size={14} /> {activeContract?.name || 'No file selected'}
             </div>
           </div>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            {activeItem?.type === 'contract' && (
+            {activeContract ? (
               <Editor
                 height="100%"
                 defaultLanguage="solidity"
                 theme="vs-dark"
-                value={getContractCode(activeItem.id)}
+                value={getContractCode(activeContract.id)}
+                onChange={handleEditorChange}
                 options={{
                   minimap: { enabled: false },
                   fontSize: 14,
-                  fontFamily: 'var(--font-sans)',
+                  fontFamily: 'inherit',
                   scrollBeyondLastLine: false,
-                  readOnly: true,
+                  readOnly: false,
                 }}
               />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '14px' }}>
+                Select a contract to view its source
+              </div>
             )}
+          </div>
+        </div>
 
-            {activeItem?.type === 'agent' && (
+        {/* Right Panel - Context/Agent Details */}
+        <div style={{ width: '380px', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-sidebar)', borderLeft: '1px solid var(--border-color)', minHeight: 0 }}>
+          <div style={{ display: 'flex', backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-main)', color: 'var(--primary)', fontSize: '13px', borderTop: '2px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Cpu size={14} /> {activeAgent?.name || 'Inspector'}
+            </div>
+          </div>
+          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+            {activeAgent ? (
               <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
                 <div style={{ marginBottom: '16px', color: '#569cd6' }}>
                   <ShieldCheck style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} size={16} />
@@ -185,7 +280,7 @@ export const ContractsPage = () => {
                   <div style={{ color: '#ce9178' }}>&gt; Fetching primitives from registry...</div>
                 ) : agentPrimitives ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ color: '#6a9955', marginBottom: '8px' }}>/* Discovered primitives for {activeItem.name} */</div>
+                    <div style={{ color: '#6a9955', marginBottom: '8px' }}>/* Discovered primitives for {activeAgent.name} */</div>
                     {[
                       { key: 'sovereign_agent', label: 'Sovereign Agent (Core)' },
                       { key: 'state_anchor', label: 'State Anchor' },
@@ -199,9 +294,8 @@ export const ContractsPage = () => {
                       const isValid = address && address !== '0x0000000000000000000000000000000000000000';
                       const paddedLabel = prim.label.padEnd(25, '.');
                       return (
-                        <div key={prim.key} style={{ display: 'flex', gap: '16px' }}>
-                          <span style={{ color: '#9cdcfe', minWidth: '220px' }}>{paddedLabel}</span>
-                          <span style={{ color: isValid ? '#b5cea8' : '#808080', flex: 1 }}>{address || 'Not Registered'}</span>
+                        <div key={prim.key} style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+                          <span style={{ color: '#9cdcfe', minWidth: '180px' }}>{paddedLabel}</span>
                           <span>
                             {isValid ? <span style={{ color: '#4ec9b0' }}>[ OK ]</span> : <span style={{ color: '#f44336' }}>[ ERR ]</span>}
                           </span>
@@ -218,7 +312,7 @@ export const ContractsPage = () => {
                             {agentAis.ais} <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#808080' }}>/ 1000</span>
                           </span>
                         </div>
-                        <div style={{ marginTop: '8px', display: 'flex', gap: '24px', color: '#d4d4d4' }}>
+                        <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', color: '#d4d4d4' }}>
                           <div>Entropy: <span style={{ color: '#b5cea8' }}>{agentAis.components.entropy}</span></div>
                           <div>Grounding: <span style={{ color: '#b5cea8' }}>{agentAis.components.grounding}</span></div>
                           <div>Sacrifice: <span style={{ color: '#b5cea8' }}>{agentAis.components.sacrifice}</span></div>
@@ -230,6 +324,10 @@ export const ContractsPage = () => {
                 ) : (
                   <div style={{ color: '#f44336' }}>[!] Agent not found in registry.</div>
                 )}
+              </div>
+            ) : (
+              <div style={{ padding: '24px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
+                Select an agent from the workspace to inspect its on-chain primitives and telemetry profile.
               </div>
             )}
           </div>
@@ -259,6 +357,7 @@ export const ContractsPage = () => {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

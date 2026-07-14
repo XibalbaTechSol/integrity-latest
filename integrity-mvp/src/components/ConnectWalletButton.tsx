@@ -1,6 +1,7 @@
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
-import { Wallet, LogOut } from 'lucide-react';
+import { Wallet, LogOut, Key, Settings } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const shortenAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`;
 
@@ -30,16 +31,44 @@ export const ConnectWalletButton = () => {
                 {isMenuOpen && (
                     <div className="glass-panel" style={{
                         position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-                        width: '160px', borderRadius: 'var(--radius-md)', zIndex: 50, padding: '8px',
+                        width: '180px', borderRadius: 'var(--radius-md)', zIndex: 50, padding: '8px',
                         border: '1px solid hsla(var(--border-color-hsl) / 0.5)',
+                        display: 'flex', flexDirection: 'column', gap: '4px'
                     }}>
+                        <Link to="/settings" style={{ textDecoration: 'none' }} onClick={() => setIsMenuOpen(false)}>
+                            <div
+                                className="glass-panel-hover"
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '8px 12px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                                    fontSize: '13px', color: 'var(--text-primary)',
+                                }}
+                            >
+                                <Settings size={14} /> Settings
+                            </div>
+                        </Link>
+                        <Link to="/settings" style={{ textDecoration: 'none' }} onClick={() => setIsMenuOpen(false)}>
+                            <div
+                                className="glass-panel-hover"
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '8px 12px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+                                    fontSize: '13px', color: 'var(--text-primary)',
+                                }}
+                            >
+                                <Key size={14} /> API Keys
+                            </div>
+                        </Link>
+                        
+                        <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }} />
+                        
                         <div
                             onClick={() => { disconnect(); setIsMenuOpen(false); }}
                             className="glass-panel-hover"
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '8px',
                                 padding: '8px 12px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                                fontSize: '13px', color: 'var(--text-primary)',
+                                fontSize: '13px', color: 'var(--danger)',
                             }}
                         >
                             <LogOut size={14} /> Disconnect

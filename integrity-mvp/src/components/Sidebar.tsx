@@ -7,7 +7,6 @@ import {
   FileText, 
   ListChecks, 
   Settings,
-  BrainCircuit,
   Code,
   Activity,
   LineChart,
@@ -48,7 +47,7 @@ export const Sidebar = () => {
         <SidebarItem to="/identity" icon={<Fingerprint size={18} />} label="Identity" />
         
         <div className="sidebar-group-title" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', padding: '16px 16px 8px 16px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Integrity Protocol</div>
-        <SidebarItem to="/exchange" icon={<LineChart size={18} />} label="Binary Exchange" />
+        <SidebarItem to="/exchange" icon={<LineChart size={18} />} label="Markets Escrow" />
         <SidebarItem to="/chain-of-thought" icon={<Network size={18} />} label="Chain of Thought" />
         <SidebarItem to="/compare-traces" icon={<GitCompare size={18} />} label="Compare Traces" />
         <SidebarItem to="/telemetry" icon={<Activity size={18} />} label="SDK Telemetry" />
@@ -58,17 +57,16 @@ export const Sidebar = () => {
         
         <div className="sidebar-group-title" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', padding: '16px 16px 8px 16px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>System</div>
         <SidebarItem to="/contracts" icon={<Code size={18} />} label="Contracts" />
-        <SidebarItem to="/cognition" icon={<BrainCircuit size={18} />} label="Cognition" />
         <SidebarItem to="/documents" icon={<FileText size={18} />} label="Documents" />
         <SidebarItem to="/audit" icon={<ListChecks size={18} />} label="Audit Logs" />
-        <SidebarItem to="/settings" icon={<Settings size={18} />} label="Settings" />
+
       </nav>
       
       <div style={{ position: 'relative' }}>
         <div 
           onClick={() => setIsProfileOpen(!isProfileOpen)}
           className="sidebar-user-container"
-          style={{ padding: isCollapsed ? '16px 12px' : '16px 24px', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', alignItems: 'center', gap: '12px', marginTop: 'auto', justifyContent: isCollapsed ? 'center' : 'flex-start', cursor: 'pointer' }}
+          style={{ padding: isCollapsed ? '16px 12px' : '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '12px', marginTop: 'auto', justifyContent: isCollapsed ? 'center' : 'flex-start', cursor: 'pointer' }}
         >
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', backgroundColor: 'var(--accent-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 10px hsla(var(--accent-primary-hsl) / 0.3)', flexShrink: 0 }}>
             <User size={18} color="white" />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '../components/TopBar';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { oracle, type MarketSummaryDto } from '../services/oracle';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { useAccount } from 'wagmi';
@@ -13,17 +13,8 @@ import { wagmiConfig } from '../chain/wagmi';
 import { abis } from '../chain/abis';
 import { singleton } from '../chain/deployments';
 
-// Illustrative candlestick-style data — IntegrityMarket is a pari-mutuel
-// pool (stake into YES/NO, no order book/price-time-priority exists
-// on-chain), so there is no real "price chart" this could ever show; kept
-// as a visual placeholder rather than removed, honestly labeled below.
-const marketData = [
-  { time: '09:00', high: 120, low: 80, open: 90, close: 110, isGreen: true },
-  { time: '10:00', high: 130, low: 100, open: 110, close: 125, isGreen: true },
-  { time: '11:00', high: 128, low: 95, open: 125, close: 98, isGreen: false },
-  { time: '12:00', high: 105, low: 70, open: 98, close: 85, isGreen: false },
-  { time: '13:00', high: 115, low: 80, open: 85, close: 110, isGreen: true },
-];
+// Illustrative market trend data — IntegrityMarket is a pari-mutuel
+// pool. We simulate a historical trend based on the current probability.
 
 const yesNoSplit = (market: MarketSummaryDto) => {
   const staked = market.outcome_staked.map(Number);
@@ -138,71 +129,95 @@ export const ExchangePage = () => {
     }
   };
 
+  const currentYes = selectedMarket ? yesNoSplit(selectedMarket).yes : 50;
+  const historicalProbabilityData = [
+    { time: 'T-24h', yes: Math.max(0, currentYes - 20) },
+    { time: 'T-12h', yes: Math.max(0, currentYes - 15) },
+    { time: 'T-6h', yes: Math.max(0, currentYes - 5) },
+    { time: 'T-2h', yes: Math.max(0, currentYes - 2) },
+    { time: 'Now', yes: currentYes },
+  ];
+
   return (
     <div className="main-content">
-      <TopBar title="Binary Exchange & Prediction Market" />
+      <TopBar title="Markets Escrow" />
       
       <div className="page-content">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 'var(--space-6)', height: 'calc(100vh - 120px)' }}>
           
-          {/* Left Column: Charts and Order Book */}
+          {/* Left Column: Escrow Analytics */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
             
-            {/* Chart Panel */}
+            {/* Implied Probability Trend */}
             <div className="card" style={{ flex: '1 1 60%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>Illustrative Market Chart <SeededDataBadge label="No on-chain price feed — pari-mutuel pool" /></h2>
+                <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Implied Probability Trend
+                  <SeededDataBadge label="Historical trend simulated" />
+                </h2>
+                {selectedMarket && (
+                  <div style={{ display: 'flex', gap: '16px', fontSize: '0.85rem', fontWeight: 600 }}>
+                    <div style={{ color: 'var(--success)' }}>YES {yesNoSplit(selectedMarket).yes}%</div>
+                    <div style={{ color: 'var(--danger)' }}>NO {yesNoSplit(selectedMarket).no}%</div>
+                  </div>
+                )}
               </div>
               
               <div style={{ height: '80%' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={marketData}>
+                  <AreaChart data={historicalProbabilityData}>
+                    <defs>
+                      <linearGradient id="colorYes" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
                     <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
                     <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)' }} />
-                    <Bar dataKey="close" radius={[2, 2, 2, 2]}>
-                      {marketData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.isGreen ? 'var(--success)' : 'var(--danger)'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
+                    <Area type="monotone" dataKey="yes" stroke="var(--success)" strokeWidth={2} fillOpacity={1} fill="url(#colorYes)" />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Order Book — illustrative only, see SeededDataBadge note above: IntegrityMarket has no CLOB */}
-            <div className="card" style={{ flex: '1 1 40%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <SeededDataBadge label="Illustrative order book" />
-              <div style={{ display: 'flex', gap: '32px' }}>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>BIDS (YES)</h3>
-                {[
-                  { price: '0.64', size: '1,200', total: '1,200' },
-                  { price: '0.63', size: '4,500', total: '5,700' },
-                  { price: '0.62', size: '8,200', total: '13,900' }
-                ].map((row, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                    <span style={{ color: 'var(--success)' }}>{row.price}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{row.size}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{row.total}</span>
-                  </div>
-                ))}
-              </div>
+            {/* Escrow Lockup Visualizer */}
+            <div className="card" style={{ flex: '1 1 40%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h2 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                Active Escrow Lockups
+                <SeededDataBadge label="Simulated positions" />
+              </h2>
               
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>ASKS (NO)</h3>
-                {[
-                  { price: '0.65', size: '800', total: '800' },
-                  { price: '0.66', size: '2,100', total: '2,900' },
-                  { price: '0.67', size: '5,400', total: '8,300' }
-                ].map((row, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                    <span style={{ color: 'var(--danger)' }}>{row.price}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{row.size}</span>
-                    <span style={{ color: 'var(--text-muted)' }}>{row.total}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto' }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Market</div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>ETH {'>'} $3500 by EOFY</div>
                   </div>
-                ))}
-              </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Locked Stake</div>
+                    <div style={{ fontSize: '1.1rem', color: 'var(--success)', fontWeight: 700 }}>500 ITK <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>(YES)</span></div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Est. Payout</div>
+                    <div style={{ fontSize: '1.1rem', color: 'var(--gold)', fontWeight: 700 }}>850 ITK</div>
+                  </div>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Market</div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>FED Rate Cut Q3</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Locked Stake</div>
+                    <div style={{ fontSize: '1.1rem', color: 'var(--danger)', fontWeight: 700 }}>250 ITK <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>(NO)</span></div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Est. Payout</div>
+                    <div style={{ fontSize: '1.1rem', color: 'var(--gold)', fontWeight: 700 }}>310 ITK</div>
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -5,7 +5,7 @@ import { useIsMobile } from '../../utils/useIsMobile';
 export const IdentityCeilingsSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(212, 175, 55, 0.03)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(212, 175, 55, 0.03)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '40px' : '80px', alignItems: 'flex-start' }}>
                     <div>
@@ -34,7 +34,7 @@ export const IdentityCeilingsSection = () => {
                                     <div style={{ color: 'var(--gold)' }}><Fingerprint size={32} /></div>
                                     <h4 style={{ fontSize: isMobile ? '1.2rem' : '1.4rem', fontWeight: 700, margin: 0 }}>EIP-712 Entity Binding</h4>
                                 </div>
-                                <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.8, margin: 0 }}>
+                                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.8, margin: 0 }}>
                                     {isMobile ? 
                                         "Agents are cryptographically linked to Controllers via human-readable typed data signatures, establishing an immutable on-chain bond." :
                                         "Agents are cryptographically linked to their Controllers using secure, human-readable typed data signatures. This establishes an immutable, on-chain bond between a high-performance machine and the legal entity held financially responsible for its outcomes. By utilizing EIP-712, we ensure that the signing process is transparent to the human operator, creating a permanent audit trail that bridges the gap between smart contract logic and real-world legal recourse."
@@ -46,7 +46,7 @@ export const IdentityCeilingsSection = () => {
                                     <div style={{ color: 'var(--gold)' }}><Database size={32} /></div>
                                     <h4 style={{ fontSize: isMobile ? '1.2rem' : '1.4rem', fontWeight: 700, margin: 0 }}>Deterministic Ceilings</h4>
                                 </div>
-                                <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.8, margin: 0 }}>
+                                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.8, margin: 0 }}>
                                     {isMobile ?
                                         "Scoring logic enforces a rigorous boundary: AIS = min(Score, TierCap). Trust is earned through combined performance and verified standing." :
                                         "The protocol's scoring logic enforces a rigorous mathematical boundary: AIS = min(Score, TierCap). This ensures that trust is earned through a combination of performance and proof. An anonymous agent (Tier 1) with flawless metrics remains capped at 600 AIS, signaling to the network that while the agent is capable, it lacks the legal accountability required for high-value settlement."
@@ -62,7 +62,7 @@ export const IdentityCeilingsSection = () => {
                                 tier: "Tier 1: Sovereign", 
                                 cap: "600 AIS", 
                                 desc: "Base L2 cryptographic key binding.",
-                                color: '#94a3b8',
+                                color: 'var(--text-muted)',
                                 badgeName: "Sovereign Insignia",
                                 link: "https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki",
                                 explanation: "Sovereign agents represent the entry layer of the autonomous economy. By binding reputation to a cryptographic key-pair rather than a legal identity, we enable privacy-first automation. This tier is essential for agents performing low-risk tasks, research, or cross-chain arbitrage where speed and pseudonymity are prioritized over deep institutional trust.",
@@ -130,7 +130,7 @@ export const IdentityCeilingsSection = () => {
                                         <h3 style={{ fontSize: isMobile ? '1.4rem' : '1.8rem', fontWeight: 800 }}>{tier.tier}</h3>
                                     </div>
                                     <div style={{ background: `${tier.color}15`, border: `1px solid ${tier.color}30`, padding: '8px 16px', borderRadius: '12px', textAlign: 'center' }}>
-                                        <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', fontWeight: 800, marginBottom: '2px' }}>HARD CAP</div>
+                                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 800, marginBottom: '2px' }}>HARD CAP</div>
                                         <div style={{ fontSize: '1.2rem', fontWeight: 900, color: tier.color }}>{tier.cap}</div>
                                     </div>
                                 </div>
@@ -141,7 +141,7 @@ export const IdentityCeilingsSection = () => {
                                         <h5 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', marginBottom: '12px' }}>REQUIREMENTS</h5>
                                         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                             {tier.requirements.map((req, j) => (
-                                                <li key={j} style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                <li key={j} style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                                                     <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: tier.color, marginTop: '6px', flexShrink: 0 }} />
                                                     {req}
                                                 </li>
@@ -152,7 +152,7 @@ export const IdentityCeilingsSection = () => {
                                         <h5 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', marginBottom: '12px' }}>BENEFITS</h5>
                                         <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                             {tier.benefits.map((ben, j) => (
-                                                <li key={j} style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                <li key={j} style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                                                     <div style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#10b981', marginTop: '6px', flexShrink: 0 }} />
                                                     {ben}
                                                 </li>
@@ -161,12 +161,12 @@ export const IdentityCeilingsSection = () => {
                                     </div>
                                 </div>
 
-                                <div style={{ paddingTop: '24px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ paddingTop: '24px', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: 700 }}>RISK PROFILE:</span>
                                         <span style={{ fontSize: '0.75rem', fontWeight: 900, color: tier.color }}>{tier.risk}</span>
                                     </div>
-                                    <a href={tier.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                                    <a href={tier.link} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
                                         SPEC <ArrowRight size={14} />
                                     </a>
                                 </div>
@@ -182,19 +182,19 @@ export const IdentityCeilingsSection = () => {
 export const ZeroKnowledgeSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(212, 175, 55, 0.02)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(212, 175, 55, 0.02)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: isMobile ? '40px' : '100px', alignItems: 'center' }}>
                     <div className="enterprise-card" style={{ padding: 0, background: '#050d18', border: '1px solid rgba(167, 139, 250, 0.1)', overflow: isMobile ? 'hidden' : 'visible', boxShadow: '0 40px 100px rgba(0,0,0,0.4)', position: 'relative' }}>
                         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: 'linear-gradient(90deg, #a78bfa 0%, transparent 100%)' }} />
-                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <Lock size={14} style={{ color: '#a78bfa' }} />
                                 <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', fontWeight: 700 }}>circuits/reputation/src/main.nr</span>
                             </div>
                             <div style={{ fontSize: '0.6rem', color: '#a78bfa', fontWeight: 900 }}>NOIR_ZK_CIRCUIT</div>
                         </div>
-                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>
+                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
                             <code style={{ color: '#a78bfa' }}>fn</code> main(<br />
                             {'  '}ais_score: <code style={{ color: '#60a5fa' }}>pub Field</code>,<br />
                             {'  '}tier_ceiling: <code style={{ color: '#60a5fa' }}>pub Field</code>,<br />
@@ -260,7 +260,7 @@ export const ZeroKnowledgeSection = () => {
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="btn btn-outline" 
-                                style={{ border: '1px solid rgba(167, 139, 250, 0.3)', color: 'white', textDecoration: 'none' }}
+                                style={{ border: '1px solid rgba(167, 139, 250, 0.3)', color: 'var(--text-primary)', textDecoration: 'none' }}
                             >
                                 EXPLORE CIRCUITS
                             </a>
@@ -275,7 +275,7 @@ export const ZeroKnowledgeSection = () => {
 export const SmartContractSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--navy-deep)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--bg-main)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '40px' : '80px', alignItems: 'center' }}>
                     <div>
@@ -299,14 +299,14 @@ export const SmartContractSection = () => {
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="btn btn-outline" 
-                                style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'white', textDecoration: 'none' }}
+                                style={{ border: '1px solid hsla(var(--border-color-hsl) / 0.5)', color: 'var(--text-primary)', textDecoration: 'none' }}
                             >
                                 Audit Report (v8.0)
                             </a>
                         </div>
                     </div>
                     <div className="enterprise-card" style={{ padding: 0, background: '#050d18', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.4)' }}>
-                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '16px 24px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
                                     <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ff5f56' }} />
@@ -317,7 +317,7 @@ export const SmartContractSection = () => {
                             </div>
                             <Copy size={14} style={{ color: 'rgba(255,255,255,0.3)' }} />
                         </div>
-                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: '#94a3b8', fontFamily: 'JetBrains Mono, monospace' }}>
+                        <pre style={{ padding: '32px', margin: 0, overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
                             <code style={{ color: '#c9a84c' }}>contract</code> IntegrityRegistry <code style={{ color: '#c9a84c' }}>is</code> Initializable, AccessControl {'{\n'}
                             {'  '} <code style={{ color: '#c9a84c' }}>struct</code> <code style={{ color: '#60a5fa' }}>AgentRecord</code> {'{\n'}
                             {'    '} <code style={{ color: '#60a5fa' }}>uint256</code> aisScore;{'\n'}

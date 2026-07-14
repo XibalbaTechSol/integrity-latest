@@ -78,50 +78,68 @@ export const AgentsPage = () => {
   return (
     <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
       <TopBar title="Agent Fleet Management">
-        <button className="btn btn-secondary glass-panel-hover" onClick={() => setIsClaimOpen(true)}>
-          <Link size={16} /> Claim Agent
+        {loadError && (
+          <div style={{ padding: '6px 12px', background: 'rgba(244, 63, 94, 0.1)', border: '1px solid var(--danger)', borderRadius: '6px', color: 'var(--danger)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={14} /> <span><strong>Sync Failed:</strong> {loadError}</span>
+          </div>
+        )}
+        <button 
+          onClick={() => setIsClaimOpen(true)}
+          style={{ background: 'hsla(var(--bg-panel-hsl) / 0.8)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', transition: 'all 0.2s' }}
+          onMouseOver={(e) => e.currentTarget.style.background = 'hsla(var(--bg-panel-hsl) / 1)'}
+          onMouseOut={(e) => e.currentTarget.style.background = 'hsla(var(--bg-panel-hsl) / 0.8)'}
+        >
+          <Link size={14} /> Claim Agent
         </button>
-        <button className="btn btn-primary glass-panel-hover" onClick={() => setIsRegisterOpen(true)}>
-          <Users size={16} /> Register Agent
+        <button 
+          onClick={() => setIsRegisterOpen(true)}
+          style={{ background: 'var(--gold)', border: 'none', color: '#000', padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(212, 175, 55, 0.2)', transition: 'all 0.2s' }}
+          onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-1px)'}
+          onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+        >
+          <Users size={14} /> Register Agent
         </button>
       </TopBar>
 
       <div className="page-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div className="grid grid-3 mb-6" style={{ flexShrink: 0 }}>
-          <div className="card glass-panel">
-            <div className="card-header">
-              <h3 className="card-title">Registered Agents</h3>
-              <Database size={20} className="text-muted" />
+        <div className="grid grid-3 mb-6" style={{ flexShrink: 0, gap: '24px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', padding: '24px', background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '16px', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'var(--gold)' }}></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, margin: 0 }}>Registered Agents</h3>
+              <Database size={18} color="var(--gold)" opacity={0.8} />
             </div>
-            <div className="stat-value">{isLoading ? '—' : agents.length}</div>
-            <div className="text-sm text-muted mt-2">Live from `GET /v1/agents`</div>
+            <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
+              {isLoading ? '—' : agents.length}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Live from <code style={{color: 'var(--text-primary)'}}>GET /v1/agents</code></div>
           </div>
-          <div className="card glass-panel">
-            <div className="card-header">
-              <h3 className="card-title">Verified Agents</h3>
-              <Activity size={20} className="text-muted" />
+
+          <div style={{ display: 'flex', flexDirection: 'column', padding: '24px', background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '16px', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'var(--success)' }}></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, margin: 0 }}>Verified Agents</h3>
+              <Activity size={18} color="var(--success)" opacity={0.8} />
             </div>
-            <div className="stat-value">
+            <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
               {isLoading ? '—' : agents.filter(a => a.verification_tier >= 1).length}
-              <span className="text-muted" style={{ fontSize: '1rem' }}> / {agents.length}</span>
+              <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}> / {agents.length}</span>
             </div>
-            <div className="text-sm text-muted mt-2">Tier ≥ 1 (Sovereign+)</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Tier ≥ 1 (Sovereign+)</div>
           </div>
-          <div className="card glass-panel">
-            <div className="card-header">
-              <h3 className="card-title">Avg Network AIS</h3>
-              <ShieldCheck size={20} className="text-muted" />
+
+          <div style={{ display: 'flex', flexDirection: 'column', padding: '24px', background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '16px', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'var(--accent-primary)' }}></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, margin: 0 }}>Avg Network AIS</h3>
+              <ShieldCheck size={18} color="var(--accent-primary)" opacity={0.8} />
             </div>
-            <div className="stat-value" style={{ color: 'var(--primary)' }}>{avgAis ?? '—'}</div>
-            <div className="text-sm text-muted mt-2">Across scored agents</div>
+            <div style={{ fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '8px', fontFamily: 'var(--font-mono)' }}>
+              {avgAis ?? '—'}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Across scored agents</div>
           </div>
         </div>
-
-        {loadError && (
-          <div className="card glass-panel mb-6" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
-            Could not reach the Integrity Oracle ({loadError}). Is `integrity-oracle` running at the configured VITE_ORACLE_URL?
-          </div>
-        )}
 
         <div style={{ flex: 1, minHeight: 0 }}>
           <NotionDatabase
@@ -138,7 +156,7 @@ export const AgentsPage = () => {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card glass-panel" style={{ width: '500px', padding: '32px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'white' }}>Register New Agent</h2>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Register New Agent</h2>
               <button style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setIsRegisterOpen(false)}>
                 <X size={20} />
               </button>
@@ -175,7 +193,7 @@ export const AgentsPage = () => {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card glass-panel" style={{ width: '500px', padding: '32px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'white' }}>Claim Existing Agent</h2>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Claim Existing Agent</h2>
               <button style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setIsClaimOpen(false)}>
                 <X size={20} />
               </button>

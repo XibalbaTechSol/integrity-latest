@@ -72,7 +72,12 @@ export const CompareTracesPage = () => {
   const [activeTab, setActiveTab] = useState('Gantt Timeline');
   const [leftDropdownOpen, setLeftDropdownOpen] = useState(false);
   const [rightDropdownOpen, setRightDropdownOpen] = useState(false);
-  const [expandedSpans, setExpandedSpans] = useState<Record<string, boolean>>({});
+  const [expandedSpans, setExpandedSpans] = useState<Record<string, boolean>>({
+    't1-s1': true,
+    't2-s1': true,
+    't2-s1-2': true,
+    't3-s1': true
+  });
   const [selectedSpan, setSelectedSpan] = useState<any>(null);
 
   const leftTrace = TRACE_DATA[leftTraceId];
@@ -95,7 +100,7 @@ export const CompareTracesPage = () => {
             onMouseEnter={e => e.currentTarget.style.backgroundColor = 'hsla(var(--bg-panel-hover-hsl) / 0.4)'}
             onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
           >
-            <div style={{ fontSize: '0.85rem', color: 'white' }}>{opt.name}</div>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{opt.name}</div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>ID: {opt.id} • {opt.duration}</div>
           </div>
         ))}
@@ -111,7 +116,7 @@ export const CompareTracesPage = () => {
       return (
         <div key={span.id} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div className="gantt-row" style={{ position: 'relative', cursor: 'pointer', marginLeft: `${depth * 12}px` }} onClick={() => setSelectedSpan(span)}>
-            <div style={{ display: 'flex', marginLeft: span.offset, width: span.width, background: span.error ? 'rgba(244, 63, 94, 0.1)' : `rgba(${colorCode === 'var(--gold)' ? '212, 175, 55' : '59, 130, 246'}, 0.1)`, border: `1px solid ${span.color}`, padding: '6px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', marginLeft: span.offset, width: span.width, background: span.error ? 'rgba(244, 63, 94, 0.1)' : `rgba(${colorCode === 'var(--gold)' ? '212, 175, 55' : '59, 130, 246'}, 0.1)`, border: `1px solid ${span.color}`, padding: '6px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
               {hasChildren && (
                 <div onClick={(e) => toggleSpan(span.id, e)} style={{ display: 'inline-flex', alignItems: 'center', marginRight: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', padding: '2px' }}>
                   <ChevronDown size={12} style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s' }} />
@@ -149,9 +154,9 @@ export const CompareTracesPage = () => {
         {activeTab === 'JSON Payload Diff' && (
           <div style={{ padding: '16px', background: '#0f111a', borderRadius: '6px', border: '1px solid #1f2937', flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <h4 style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}><Code size={14} /> Request Payload</h4>
+              <h4 style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}><Code size={14} /> Request Payload</h4>
             </div>
-            <pre style={{ margin: 0, fontSize: '0.75rem', color: '#e2e8f0', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            <pre style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {trace.payload}
             </pre>
           </div>
@@ -187,7 +192,7 @@ export const CompareTracesPage = () => {
           >
             <div>
               <div style={{ fontSize: '0.75rem', color: 'var(--primary)', textTransform: 'uppercase', marginBottom: '2px' }}>Trace A</div>
-              <div style={{ color: 'white', fontSize: '0.9rem' }}>{leftTrace.name} <span style={{ color: 'var(--text-muted)' }}>[{leftTrace.id}]</span></div>
+              <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>{leftTrace.name} <span style={{ color: 'var(--text-muted)' }}>[{leftTrace.id}]</span></div>
             </div>
             <ChevronDown size={16} color="var(--text-muted)" style={{ alignSelf: 'center' }} />
           </div>
@@ -201,7 +206,7 @@ export const CompareTracesPage = () => {
           >
             <div>
               <div style={{ fontSize: '0.75rem', color: 'var(--gold)', textTransform: 'uppercase', marginBottom: '2px' }}>Trace B</div>
-              <div style={{ color: 'white', fontSize: '0.9rem' }}>{rightTrace.name} <span style={{ color: 'var(--text-muted)' }}>[{rightTrace.id}]</span></div>
+              <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>{rightTrace.name} <span style={{ color: 'var(--text-muted)' }}>[{rightTrace.id}]</span></div>
             </div>
             <ChevronDown size={16} color="var(--text-muted)" style={{ alignSelf: 'center' }} />
           </div>
@@ -235,14 +240,14 @@ export const CompareTracesPage = () => {
               <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
                   <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Operation</h4>
-                  <div style={{ fontSize: '0.9rem', color: 'white' }}>{selectedSpan.label}</div>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{selectedSpan.label}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Duration: {selectedSpan.dur}</div>
                 </div>
                 
                 <div>
                   <h4 style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>Inputs</h4>
                   <div style={{ background: '#0f111a', padding: '12px', borderRadius: '4px', border: '1px solid #1f2937' }}>
-                    <pre style={{ margin: 0, fontSize: '0.75rem', color: '#e2e8f0', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    <pre style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {selectedSpan.inputs || 'No inputs recorded'}
                     </pre>
                   </div>

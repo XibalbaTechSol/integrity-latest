@@ -91,7 +91,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                 >
                     <button 
                         onClick={onClose}
-                        style={{ position: 'absolute', top: '24px', right: '24px', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '8px' }}
+                        style={{ position: 'absolute', top: '24px', right: '24px', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '8px' }}
                     >
                         <X size={24} />
                     </button>
@@ -99,15 +99,15 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                     {status === 'success' ? (
                         <div style={{ textAlign: 'center', padding: '60px 0' }}>
                             <CheckCircle size={64} style={{ color: 'var(--gold)', margin: '0 auto 24px' }} />
-                            <h2 style={{ fontSize: '2rem', marginBottom: '16px', fontFamily: 'Playfair Display, serif' }}>Inquiry Received</h2>
+                            <h2 style={{ fontSize: '2rem', marginBottom: '16px', fontFamily: 'inherit' }}>Inquiry Received</h2>
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '1.1rem' }}>Thank you for reaching out to Xibalba Solutions. Our team will review your message and respond shortly.</p>
                         </div>
                     ) : (
                         <>
                             <div style={{ marginBottom: '32px' }}>
                                 <span style={{ color: 'var(--gold)', fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em' }}>Xibalba Solutions</span>
-                                <h2 style={{ fontSize: '2rem', marginTop: '8px', fontFamily: 'Playfair Display, serif' }}>Contact Us</h2>
-                                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', marginTop: '8px' }}>Send us a message and we'll route it directly to the appropriate team.</p>
+                                <h2 style={{ fontSize: '2rem', marginTop: '8px', fontFamily: 'inherit' }}>Contact Us</h2>
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '8px' }}>Send us a message and we'll route it directly to the appropriate team.</p>
                             </div>
 
                             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -120,7 +120,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                                             value={formData.name}
                                             onChange={handleChange}
                                             type="text" 
-                                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px', borderRadius: '12px', color: 'white', fontSize: '1rem', outline: 'none' }} 
+                                            style={{ background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '1rem', outline: 'none' }} 
                                         />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -131,7 +131,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                                             value={formData.email}
                                             onChange={handleChange}
                                             type="email" 
-                                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px', borderRadius: '12px', color: 'white', fontSize: '1rem', outline: 'none' }} 
+                                            style={{ background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '1rem', outline: 'none' }} 
                                         />
                                     </div>
                                 </div>
@@ -144,7 +144,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                                             value={formData.organization}
                                             onChange={handleChange}
                                             type="text" 
-                                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px', borderRadius: '12px', color: 'white', fontSize: '1rem', outline: 'none' }} 
+                                            style={{ background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '1rem', outline: 'none' }} 
                                         />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -153,7 +153,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                                             name="inquiry_type"
                                             value={formData.inquiry_type}
                                             onChange={handleChange}
-                                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px', borderRadius: '12px', color: 'white', fontSize: '1rem', outline: 'none', appearance: 'none' }}
+                                            style={{ background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '1rem', outline: 'none', appearance: 'none' }}
                                         >
                                             <option value="Investment & Institutional">Investment & Institutional</option>
                                             <option value="Developer Integration">Developer Integration</option>
@@ -170,7 +170,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose, ini
                                         value={formData.message}
                                         onChange={handleChange}
                                         rows={4} 
-                                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', padding: '16px', borderRadius: '12px', color: 'white', fontSize: '1rem', outline: 'none', resize: 'vertical' }} 
+                                        style={{ background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '1rem', outline: 'none', resize: 'vertical' }} 
                                     />
                                 </div>
 

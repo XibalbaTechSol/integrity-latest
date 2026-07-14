@@ -72,7 +72,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
 
     const tierLabels: Record<number, { label: string; color: string }> = {
         0: { label: 'Unverified', color: 'rgba(255,255,255,0.3)' },
-        1: { label: 'Sovereign', color: 'rgba(255,255,255,0.5)' },
+        1: { label: 'Sovereign', color: 'var(--text-muted)' },
         2: { label: 'Linked', color: '#60a5fa' },
         3: { label: 'Institutional', color: 'var(--gold)' }
     };
@@ -117,7 +117,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                     {/* Header */}
                     <div style={{
                         padding: isMobile ? '24px 20px' : '28px 32px',
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                        borderBottom: '1px solid hsla(var(--border-color-hsl) / 0.5)',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center'
@@ -143,7 +143,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                         <button
                             onClick={onClose}
                             style={{
-                                background: 'rgba(255,255,255,0.05)', border: 'none',
+                                background: 'hsla(var(--bg-panel-hsl) / 0.5)', border: 'none',
                                 borderRadius: '10px', padding: '8px',
                                 cursor: 'pointer', color: 'rgba(255,255,255,0.4)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center'
@@ -179,7 +179,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                                     placeholder="Agent address..."
                                     style={{
                                         flex: 1, background: 'transparent', border: 'none',
-                                        color: 'white', fontSize: '0.85rem', fontFamily: 'JetBrains Mono, monospace',
+                                        color: 'var(--text-primary)', fontSize: '0.85rem', fontFamily: 'JetBrains Mono, monospace',
                                         outline: 'none', padding: '14px 0'
                                     }}
                                 />
@@ -211,7 +211,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                                         key={example}
                                         onClick={() => { setQuery(example); }}
                                         style={{
-                                            background: 'rgba(255,255,255,0.03)',
+                                            background: 'hsla(var(--bg-panel-hsl) / 0.3)',
                                             border: '1px solid rgba(255,255,255,0.06)',
                                             borderRadius: '8px', padding: '6px 14px',
                                             color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem',
@@ -241,7 +241,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                                 }}
                             >
                                 <AlertTriangle size={20} style={{ color: '#f43f5e', flexShrink: 0 }} />
-                                <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.7)' }}>{error}</span>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{error}</span>
                             </motion.div>
                         )}
 
@@ -307,12 +307,12 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                                                 label: 'Ceiling',
                                                 value: `${({0: 600, 1: 600, 2: 850, 3: 1000} as Record<number, number>)[result.verification_tier] ?? 600}`,
                                                 sub: 'Max AIS',
-                                                color: 'rgba(255,255,255,0.7)'
+                                                color: 'var(--text-secondary)'
                                             }
                                         ].map((m, i) => (
                                             <div key={i} style={{
                                                 padding: '12px 16px',
-                                                background: 'rgba(0,0,0,0.3)',
+                                                background: 'hsla(var(--bg-panel-hsl) / 0.5)',
                                                 borderRadius: '12px',
                                                 border: '1px solid rgba(255,255,255,0.04)'
                                             }}>

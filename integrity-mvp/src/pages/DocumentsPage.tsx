@@ -30,7 +30,7 @@ export const DocumentsPage = () => {
       header: 'Filename',
       cell: info => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: 500 }}>
-          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '8px' }}>
+          <div style={{ background: 'hsla(var(--bg-panel-hsl) / 0.5)', padding: '8px', borderRadius: '8px' }}>
             <FileText size={16} color="var(--primary)" />
           </div>
           {info.getValue()}

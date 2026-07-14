@@ -37,7 +37,7 @@ export const XNSSearchService: React.FC = () => {
             <div style={{
                 display: 'flex',
                 gap: '8px',
-                background: 'rgba(255,255,255,0.03)',
+                background: 'hsla(var(--bg-panel-hsl) / 0.3)',
                 border: '1px solid var(--border)',
                 borderRadius: 'var(--r-md)',
                 padding: '4px 4px 4px 12px',
@@ -54,7 +54,7 @@ export const XNSSearchService: React.FC = () => {
                         flex: 1,
                         background: 'transparent',
                         border: 'none',
-                        color: 'white',
+                        color: 'var(--text-primary)',
                         fontSize: '0.85rem',
                         outline: 'none',
                         padding: '8px 0'
@@ -80,7 +80,7 @@ export const XNSSearchService: React.FC = () => {
                     border: '1px solid rgba(244, 63, 94, 0.2)',
                     borderRadius: 'var(--r-md)',
                     fontSize: '0.75rem',
-                    color: 'rgba(255,255,255,0.7)'
+                    color: 'var(--text-secondary)'
                 }}>
                     <AlertTriangle size={16} style={{ color: '#f43f5e', flexShrink: 0 }} />
                     {error}

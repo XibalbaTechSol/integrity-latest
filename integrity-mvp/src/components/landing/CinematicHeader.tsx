@@ -32,22 +32,18 @@ export const CinematicHeader = () => {
                         alt="Xibalba" 
                         style={{ height: isMobile ? '24px' : (scrolled ? '32px' : '48px'), transition: 'all 0.4s', filter: 'drop-shadow(0 0 10px rgba(212, 175, 55, 0.5))' }} 
                     />
-                    <div>
-                         <div style={{ fontSize: isMobile ? '0.8rem' : '1.1rem', fontWeight: 800, letterSpacing: '0.15em' }}>INTEGRITY <span style={{ color: 'var(--gold)', fontWeight: 400 }}>v8.3</span></div>
-                        <div style={{ fontSize: isMobile ? '0.45rem' : '0.55rem', color: 'rgba(255,255,255,0.4)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.3em' }}>Xibalba Sovereign Protocol</div>
-                    </div>
                 </div>
                 
                 {isMobile ? (
                     <button 
                         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                        style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer' }}
                     >
                         {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
                 ) : (
                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                        <button onClick={() => { alert("Google Sign-In flow initiated."); navigate('/integrity'); window.scrollTo(0, 0); }} className="btn btn-outline" style={{ fontSize: '0.85rem', borderColor: 'rgba(255,255,255,0.3)', color: 'white' }}>Sign In</button>
+                        <button onClick={() => { alert("Google Sign-In flow initiated."); navigate('/integrity'); window.scrollTo(0, 0); }} className="btn btn-outline" style={{ fontSize: '0.85rem', borderColor: 'rgba(255,255,255,0.3)', color: 'var(--text-primary)' }}>Sign In</button>
                         <button onClick={() => { navigate('/integrity'); window.scrollTo(0, 0); }} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>Launch Dashboard</button>
                     </div>
                 )}
@@ -61,7 +57,7 @@ export const CinematicHeader = () => {
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
                         style={{ 
-                            background: 'var(--navy-deep)', 
+                            background: 'var(--bg-main)', 
                             overflow: 'hidden',
                             borderTop: '1px solid rgba(255,255,255,0.1)',
                             marginTop: '12px',
@@ -70,7 +66,7 @@ export const CinematicHeader = () => {
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <button onClick={() => { navigate('/integrity'); setIsMobileMenuOpen(false); window.scrollTo(0, 0); }} className="btn btn-primary">Launch Dashboard</button>
-                            <button onClick={() => { window.open('https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki', '_blank'); setIsMobileMenuOpen(false); }} className="btn btn-outline" style={{ color: 'white', borderColor: 'rgba(255,255,255,0.2)' }}>Protocol Blog</button>
+                            <button onClick={() => { window.open('https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki', '_blank'); setIsMobileMenuOpen(false); }} className="btn btn-outline" style={{ color: 'var(--text-primary)', borderColor: 'rgba(255,255,255,0.2)' }}>Protocol Blog</button>
                         </div>
                     </motion.div>
                 )}

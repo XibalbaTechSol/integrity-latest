@@ -51,7 +51,7 @@ export const WidgetWrapper: React.FC<WidgetWrapperProps> = ({ isEditing, onDelet
             color: 'var(--text-muted)',
             padding: '4px',
             borderRadius: '4px',
-            background: 'rgba(255, 255, 255, 0.05)',
+            background: 'hsla(var(--bg-panel-hsl) / 0.5)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -77,7 +77,7 @@ export const WidgetWrapper: React.FC<WidgetWrapperProps> = ({ isEditing, onDelet
             onClick={() => setShowMenu(!showMenu)}
             className="btn btn-sm btn-icon"
             style={{ 
-              background: 'rgba(255,255,255,0.05)', 
+              background: 'hsla(var(--bg-panel-hsl) / 0.5)', 
               borderRadius: '4px',
               padding: '4px',
               color: 'var(--text-muted)'

@@ -348,7 +348,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
             {/* Console / Logs Side */}
             <div className="flex-col gap-4">
-              <div data-testid="protocol-logs" style={{ background: 'var(--navy-deep)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', height: '240px', padding: 'var(--space-3)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div data-testid="protocol-logs" style={{ background: 'var(--bg-main)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', height: '240px', padding: 'var(--space-3)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div className="flex items-center justify-between" style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', marginBottom: '4px' }}>
                   <div className="flex items-center gap-2" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                     <Terminal size={14} /> Protocol Logs
@@ -593,7 +593,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
           <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
             <div 
               onClick={() => setSelectedAgentForHire(null)}
-              style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} 
+              style={{ position: 'absolute', inset: 0, background: 'var(--bg-main)', opacity: 0.85, backdropFilter: 'blur(8px)' }} 
             />
             
             <div style={{ 
@@ -612,7 +612,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
               <div style={{ padding: 'var(--space-6)', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--navy-light)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <UserCheck size={20} color="var(--primary)" />
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Hire {selectedAgentForHire.alias}</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Hire {selectedAgentForHire.alias}</h3>
                 </div>
                 <button onClick={() => setSelectedAgentForHire(null)} className="btn btn-icon" style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
               </div>

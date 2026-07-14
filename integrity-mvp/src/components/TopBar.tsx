@@ -24,12 +24,27 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
   const { agents, selectedAgentId, setSelectedAgentId, selectedAgent } = useAgent();
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
 
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: 1, title: 'Oracle Connected', message: 'Integrity Oracle sync complete.', time: 'Just now', read: false },
+    { id: 2, title: 'Policy Enforced', message: 'Agent attempted unapproved DEX swap. Blocked.', time: '2m ago', read: false },
+    { id: 3, title: 'Attestation Verified', message: 'ZK proof validated for Context #892.', time: '1hr ago', read: true }
+  ]);
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleBellClick = () => {
+    setIsNotificationOpen(!isNotificationOpen);
+    if (!isNotificationOpen) {
+      setNotifications(notifications.map(n => ({ ...n, read: true })));
+    }
+  };
+
   return (
     <div className="top-bar" style={{ gap: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <h1 style={{ fontSize: '20px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h1>
         {tabs && (
-          <div style={{ display: 'flex', gap: '24px', marginLeft: '24px' }}>
+          <div className="custom-scrollbar" style={{ display: 'flex', gap: '24px', marginLeft: '24px', overflowX: 'auto', paddingBottom: '2px' }}>
             {tabs.map((tab) => (
               <div 
                 key={tab}
@@ -39,7 +54,8 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
                   borderBottom: activeTab === tab ? '2px solid var(--accent-primary)' : '2px solid transparent',
                   paddingBottom: '20px',
                   marginTop: '20px',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
                 }}
               >
                 {tab}
@@ -119,14 +135,56 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
                 style={{ 
                   background: 'transparent', 
                   border: 'none', 
-                  color: 'white', 
+                  color: 'var(--text-primary)', 
                   outline: 'none',
                   marginLeft: '8px'
                 }} 
               />
             </div>
             
-            <Bell size={20} color="var(--text-secondary)" />
+            <div style={{ position: 'relative' }}>
+              <div onClick={handleBellClick} style={{ cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Bell size={20} color="var(--text-secondary)" />
+                {unreadCount > 0 && (
+                  <div style={{
+                    position: 'absolute', top: -4, right: -4,
+                    background: 'var(--status-error)', color: 'var(--text-primary)',
+                    fontSize: '9px', fontWeight: 'bold',
+                    width: '14px', height: '14px', borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    {unreadCount}
+                  </div>
+                )}
+              </div>
+              {isNotificationOpen && (
+                <div className="glass-panel" style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: '16px',
+                  width: '320px', borderRadius: 'var(--radius-md)', zIndex: 100,
+                  display: 'flex', flexDirection: 'column',
+                  border: '1px solid hsla(var(--border-color-hsl) / 0.5)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid hsla(var(--border-color-hsl)/0.3)', fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>
+                    Notifications
+                  </div>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {notifications.map(n => (
+                      <div key={n.id} className="glass-panel-hover" style={{
+                        padding: '12px 16px', borderBottom: '1px solid hsla(var(--border-color-hsl)/0.1)',
+                        opacity: n.read ? 0.7 : 1, cursor: 'pointer'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{n.title}</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{n.time}</span>
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>{n.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <ConnectWalletButton />
           </>

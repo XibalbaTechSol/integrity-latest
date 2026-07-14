@@ -90,7 +90,7 @@ export const IdentityPage = () => {
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginTop: '4px' }}>Decentralized Identifier (DID)</div>
                 </div>
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '12px', wordBreak: 'break-all', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.2rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '12px', wordBreak: 'break-all', padding: '16px', background: 'hsla(var(--bg-panel-hsl) / 0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                 {selectedAgent?.did ?? 'No agent selected'}
                 {selectedAgent && (
                   <button className="btn btn-secondary" style={{ padding: '6px', background: 'transparent' }} onClick={() => navigator.clipboard.writeText(selectedAgent.did)}><Copy size={16} /></button>
@@ -153,7 +153,7 @@ export const IdentityPage = () => {
               <div style={{ padding: '24px', background: 'rgba(0,0,0,0.2)', borderRadius: '16px', border: '1px solid var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '8px' }}>ITK Token Balance</div>
-                  <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'white', lineHeight: 1 }}>
+                  <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
                     {wallet ? Number(wallet.itk_balance).toLocaleString() : '—'}
                   </div>
                 </div>
@@ -184,7 +184,7 @@ export const IdentityPage = () => {
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', position: 'relative' }}>
             <div>
-              <h3 style={{ fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px', margin: 0, color: 'white' }}>
+              <h3 style={{ fontSize: '1.5rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px', margin: 0, color: 'var(--text-primary)' }}>
                 <Globe size={28} style={{ color: '#60a5fa' }} /> XNS (Xibalba Name Service)
               </h3>
               <div style={{ color: 'var(--text-muted)', marginTop: '8px' }}>Global agent discovery and resolution protocol.</div>
@@ -193,7 +193,7 @@ export const IdentityPage = () => {
           </div>
           
           <div style={{ display: 'flex', gap: '32px', alignItems: 'stretch', position: 'relative' }}>
-            <div style={{ flex: 1, padding: '32px', background: 'rgba(0,0,0,0.3)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '16px' }}>
+            <div style={{ flex: 1, padding: '32px', background: 'hsla(var(--bg-panel-hsl) / 0.5)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: '16px' }}>
                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Your Registered Handle</div>
                <span style={{ fontSize: '2.5rem', fontWeight: '900', fontFamily: 'var(--font-mono)', background: 'linear-gradient(90deg, #fff, #60a5fa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                  {xnsName}.xibalba
@@ -220,7 +220,7 @@ export const IdentityPage = () => {
                 </div>
               </button>
               
-              <button className="btn btn-secondary" style={{ padding: '24px', fontSize: '1.1rem', fontWeight: 600, justifyContent: 'center', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }} onClick={() => setIsXnsOpen(true)}>
+              <button className="btn btn-secondary" style={{ padding: '24px', fontSize: '1.1rem', fontWeight: 600, justifyContent: 'center', borderRadius: '16px', border: '1px solid hsla(var(--border-color-hsl) / 0.5)' }} onClick={() => setIsXnsOpen(true)}>
                 Register Additional Handle
               </button>
             </div>
@@ -242,7 +242,7 @@ export const IdentityPage = () => {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card glass-panel" style={{ width: '500px', padding: '32px', border: '1px solid var(--primary)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Globe size={20} color="var(--primary)" />
                 Register XNS Handle
               </h2>

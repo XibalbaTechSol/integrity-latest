@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Mail, Code } from 'lucide-react';
+import { Code } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../utils/useIsMobile';
 
@@ -25,7 +25,7 @@ export const HeroSection = ({ setContactType, setIsContactOpen }: { setContactTy
                     />
                     <span style={{ color: 'var(--gold)', fontSize: isMobile ? '0.65rem' : '0.85rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '12px', display: 'block' }}>The Engine of Trust for the Agentic Economy</span>
 
-                    <h1 style={{ fontSize: isMobile ? '1.8rem' : 'clamp(2rem, 5vw, 4rem)', marginBottom: '24px', fontFamily: 'Playfair Display, serif', lineHeight: 1.1, letterSpacing: '-0.02em', padding: isMobile ? '0 10px' : '0' }}>
+                    <h1 style={{ fontSize: isMobile ? '1.8rem' : 'clamp(2rem, 5vw, 4rem)', marginBottom: '24px', fontFamily: 'Raleway, sans-serif', lineHeight: 1.1, letterSpacing: '-0.02em', padding: isMobile ? '0 10px' : '0' }}>
                         Keep your autonomous agents <br /><span style={{ color: 'var(--gold)' }}>honest, reliable, and accountable.</span>
                     </h1>
                     <p style={{ fontSize: isMobile ? '0.95rem' : '1.15rem', color: 'rgba(255,255,255,0.85)', maxWidth: '900px', margin: '0 auto 32px', lineHeight: 1.7, fontWeight: 500, padding: isMobile ? '0 10px' : '0' }}>
@@ -38,50 +38,18 @@ export const HeroSection = ({ setContactType, setIsContactOpen }: { setContactTy
                         }
                     </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
-                        <button 
-                            onClick={() => { 
-                                alert("Google Sign-In flow initiated. 1,000,000 ITK reward pending.");
-                                navigate('/integrity');
-                            }} 
-                            className="btn" 
-                            style={{ 
-                                padding: isMobile ? '16px 24px' : '18px 40px', 
-                                fontSize: '1rem', 
-                                background: 'white', 
-                                color: 'black', 
-                                border: 'none', 
-                                borderRadius: '12px',
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '12px',
-                                cursor: 'pointer',
-                                fontWeight: 600,
-                                boxShadow: '0 4px 15px rgba(255, 255, 255, 0.2)'
-                            }}
-                        >
-                            <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" style={{ width: '24px', height: '24px' }} />
-                            Sign in with Google 
-                            <span style={{ 
-                                background: 'rgba(212, 175, 55, 0.1)', 
-                                color: '#b8860b', 
-                                padding: '4px 10px', 
-                                borderRadius: '6px', 
-                                fontSize: '0.85rem',
-                                fontWeight: 800
-                            }}>+1,000,000 ITK</span>
-                        </button>
                         <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? '0 20px' : '0' }}>
                             <button 
-                                onClick={() => { setContactType('investor'); setIsContactOpen(true); }} 
+                                onClick={() => { navigate('/integrity'); window.scrollTo(0, 0); }} 
                                 className="btn btn-primary" 
                                 style={{ padding: isMobile ? '12px 20px' : '16px 32px', fontSize: '0.9rem' }}
                             >
-                                <Mail size={18} /> Institutional Inquiries
+                                Launch Dashboard
                             </button>
                             <button 
                                 onClick={() => { setContactType('developer'); setIsContactOpen(true); }} 
                                 className="btn btn-outline" 
-                                style={{ border: '1.5px solid rgba(255,255,255,0.2)', color: 'white', padding: isMobile ? '12px 20px' : '16px 32px', fontSize: '0.9rem', background: 'transparent', cursor: 'pointer', borderRadius: '12px' }}
+                                style={{ border: '1.5px solid rgba(255,255,255,0.2)', color: 'var(--text-primary)', padding: isMobile ? '12px 20px' : '16px 32px', fontSize: '0.9rem', background: 'transparent', cursor: 'pointer', borderRadius: '12px' }}
                             >
                                 <Code size={18} /> Developer Integration
                             </button>

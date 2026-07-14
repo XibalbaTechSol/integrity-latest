@@ -6,7 +6,7 @@ import { useIsMobile } from '../../utils/useIsMobile';
 export const SdkIntegrationSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--navy-deep)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--bg-main)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
                 <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.4em', marginBottom: '16px', display: 'block' }}>Developer First</span>
                 <h2 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: 800, marginBottom: '24px' }}>Integrate in <span style={{ color: 'var(--gold)' }}>seconds.</span></h2>
@@ -18,7 +18,7 @@ export const SdkIntegrationSection = () => {
                     background: 'rgba(5, 13, 24, 0.9)', 
                     padding: '32px', 
                     borderRadius: '16px', 
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    border: '1px solid hsla(var(--border-color-hsl) / 0.5)',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -26,7 +26,7 @@ export const SdkIntegrationSection = () => {
                 }}>
                     <code style={{ 
                         fontSize: isMobile ? '0.9rem' : '1.1rem', 
-                        color: '#e2e8f0', 
+                        color: 'var(--text-primary)', 
                         background: '#0f172a', 
                         padding: '16px 24px', 
                         borderRadius: '8px',
@@ -44,7 +44,7 @@ export const SdkIntegrationSection = () => {
                     </code>
                     <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', justifyContent: 'center' }}>
                         <button onClick={() => window.open('https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki', '_blank')} className="btn btn-primary">Full SDK Documentation</button>
-                        <a href="https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'white', textDecoration: 'none' }}>View Repository</a>
+                        <a href="https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki" target="_blank" rel="noopener noreferrer" className="btn btn-outline" style={{ border: '1px solid hsla(var(--border-color-hsl) / 0.5)', color: 'var(--text-primary)', textDecoration: 'none' }}>View Repository</a>
                     </div>
                 </div>
             </div>
@@ -60,7 +60,7 @@ export const TokenEconomySection = () => {
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
                     <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5em', display: 'block', marginBottom: '16px' }}>Token Economy</span>
                     <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>The <span style={{ color: 'var(--gold)' }}>$ITK</span> Sovereign Economy.</h2>
-                    <p style={{ color: 'rgba(255,255,255,0.5)', maxWidth: '700px', margin: '0 auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
+                    <p style={{ color: 'var(--text-muted)', maxWidth: '700px', margin: '0 auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
                         Every trust handshake in the agentic web feeds a deflationary engine. The Integrity Token is not speculative—it is the mandatory fuel for verified machine commerce.
                     </p>
                 </div>
@@ -99,7 +99,7 @@ export const TokenEconomySection = () => {
                             <span style={{ color: item.color, fontSize: '0.6rem', fontWeight: 900, letterSpacing: '0.25em', marginBottom: '8px', display: 'block' }}>{item.label}</span>
                             <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px' }}>{item.title}</h3>
                             <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.9rem', lineHeight: 1.7, flex: 1, marginBottom: '28px' }}>{item.desc}</p>
-                            <div style={{ paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ paddingTop: '20px', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
                                 <div style={{ fontSize: '1.8rem', fontWeight: 900, color: item.color }}>{item.stat}</div>
                                 <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', fontWeight: 700, letterSpacing: '0.1em', marginTop: '4px' }}>{item.statLabel}</div>
                             </div>
@@ -109,7 +109,7 @@ export const TokenEconomySection = () => {
                 <div style={{ background: 'rgba(212,175,55,0.05)', border: '1px solid rgba(212,175,55,0.15)', borderRadius: '24px', padding: isMobile ? '32px' : '48px', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '40px', alignItems: 'center' }}>
                     <div>
                         <h3 style={{ fontSize: isMobile ? '1.5rem' : '2rem', fontWeight: 800, marginBottom: '16px' }}>Three-Phase Launch Strategy</h3>
-                        <p style={{ color: 'rgba(255,255,255,0.5)', lineHeight: 1.8, fontSize: '0.95rem' }}>The $ITK token launches with a controlled supply bootstrap to ensure price stability before organic agent demand drives the deflationary mechanism at scale.</p>
+                        <p style={{ color: 'var(--text-muted)', lineHeight: 1.8, fontSize: '0.95rem' }}>The $ITK token launches with a controlled supply bootstrap to ensure price stability before organic agent demand drives the deflationary mechanism at scale.</p>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {[
@@ -135,7 +135,7 @@ export const TokenEconomySection = () => {
 export const DaoGovernanceSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5,13,24,0.99)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5,13,24,0.99)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '48px' : '100px', alignItems: 'center' }}>
                     <div>
@@ -152,7 +152,7 @@ export const DaoGovernanceSection = () => {
                             <div style={{ fontSize: '1rem', fontWeight: 800, marginBottom: '4px' }}>Shadow Governance Phase (Pilot)</div>
                             <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.4)' }}>Guardian votes are non-binding and used to train the protocol's stability model. Full DAO activation follows the Decentralization Roadmap.</div>
                         </div>
-                        <a href="https://xibalbatechsol.github.io/docs/xibalba_shield_proposal.pdf" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ background: '#8b5cf6', color: 'white', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                        <a href="https://xibalbatechsol.github.io/docs/xibalba_shield_proposal.pdf" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ background: '#8b5cf6', color: 'var(--text-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                             <Vote size={16} /> Read Governance Specs
                         </a>
                     </div>
@@ -188,7 +188,7 @@ export const CrossChainSection = () => {
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
                     <span style={{ color: '#60a5fa', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5em', display: 'block', marginBottom: '16px' }}>Universal Trust Layer</span>
                     <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>One Reputation.<br /><span style={{ color: '#60a5fa' }}>Every Chain.</span></h2>
-                    <p style={{ color: 'rgba(255,255,255,0.5)', maxWidth: '650px', margin: '0 auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
+                    <p style={{ color: 'var(--text-muted)', maxWidth: '650px', margin: '0 auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
                         The did:intg identifier travels with an agent across every L1 and L2. Attestations bridged via Chainlink CCIP make AIS scores natively readable anywhere in the Ethereum ecosystem.
                     </p>
                 </div>
@@ -233,11 +233,11 @@ export const CrossChainSection = () => {
 export const RoadmapSection = () => {
     const isMobile = useIsMobile();
     return (
-        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5,13,24,0.99)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'rgba(5,13,24,0.99)', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)' }}>
             <div style={{ maxWidth: '1000px', margin: '0 auto', textAlign: 'center' }}>
                 <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5em', display: 'block', marginBottom: '16px' }}>The Path to Full Sovereignty</span>
                 <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>Decentralization <span style={{ color: 'var(--gold)' }}>Roadmap.</span></h2>
-                <p style={{ color: 'rgba(255,255,255,0.5)', maxWidth: '650px', margin: '0 auto 64px', fontSize: '1.05rem', lineHeight: 1.7 }}>
+                <p style={{ color: 'var(--text-muted)', maxWidth: '650px', margin: '0 auto 64px', fontSize: '1.05rem', lineHeight: 1.7 }}>
                     The protocol begins centralized for speed and safety, then progressively transfers all control to the Sovereign DAO. Every phase is governed by on-chain milestones—not promises.
                 </p>
                 <div style={{ position: 'relative' }}>
@@ -308,7 +308,7 @@ export const RoadmapSection = () => {
                                     </div>
                                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                         {phase.items.map((item, j) => (
-                                            <li key={j} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+                                            <li key={j} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                                 <CheckCircle2 size={14} style={{ color: phase.statusColor, flexShrink: 0, marginTop: '2px' }} />
                                                 {item}
                                             </li>
@@ -329,7 +329,7 @@ export const FooterSection = ({ setIsContactOpen, setContactType }: { setIsConta
     const isMobile = useIsMobile();
     const navigate = useNavigate();
     return (
-        <footer style={{ padding: '80px 60px', borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+        <footer style={{ padding: '80px 60px', borderTop: '1px solid hsla(var(--border-color-hsl) / 0.5)', textAlign: 'center' }}>
             <img 
                 src="/integrity/XibalbaSolutionsLogo.png" 
                 alt="Xibalba" 

@@ -106,7 +106,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }}
+        style={{ position: 'absolute', inset: 0, background: 'var(--bg-main)', opacity: 0.85, backdropFilter: 'blur(8px)' }}
       />
 
       <motion.div
@@ -126,7 +126,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
         <div style={{ padding: 'var(--space-6)', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--navy-light)' }}>
           <div className="flex items-center gap-3">
             <Shield size={20} color="var(--gold)" />
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Verify Agent Control</h3>
+            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Verify Agent Control</h3>
           </div>
           <button onClick={onClose} className="btn btn-icon" aria-label="Close modal"><X size={20} /></button>
         </div>

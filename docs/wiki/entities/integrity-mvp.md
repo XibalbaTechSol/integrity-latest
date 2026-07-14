@@ -79,14 +79,14 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
    `integrity-cli`/the new seed script — not assumed from response shape
    alone): `AgentContext` (was 3 hardcoded fake agents, now
    `oracle.listAgents()`), `AgentsPage` (real DID/tier/AIS/created_at),
-   `IntelligencePage` (new real leaderboard panel via
-   `oracle.getLeaderboard()`), `IdentityPage` (real DID + real ITK
-   balance/open-positions via `oracle.getWallet()`), `ExchangePage` (real
-   `oracle.listMarkets()` for the Active Markets list), `FinancePage`
-   (real ITK balance in the Token Wallet panel), `DashboardPage` (real AIS
-   distribution + high-integrity % computed from real agent scores).
-   Confirmed end-to-end via Playwright against the real running stack: a
-   real agent DID registered through `integrity-cli` appears verbatim in
+   `IntelligencePage` (new real   leaderboard panel via `oracle.getLeaderboard()`), `IdentityPage`
+   (real DID + real ITK balance/open-positions via
+   `oracle.getWallet()`), `ExchangePage` (real `oracle.listMarkets()` for
+   the Active Markets list), `FinancePage` (real ITK balance, real historical
+   transactions, and real agent allowances from `oracle.getWallet()`),
+   `DashboardPage` (real AIS distribution + high-integrity % computed from real
+   agent scores, live updated via `useOracleStream` SSE events). Confirmed
+   end-to-end via Playwright against the real running stack: a real agent DID registered through `integrity-cli` appears verbatim in
    the browser-rendered page, sourced from a captured real network
    response — not just "the build compiles."
 5. **Honest labeling for what's still simulated** — a new
@@ -121,6 +121,7 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
 8. **Notion-Style Block & Widget Dashboard Engine**: Refactored `DashboardPage.tsx` to utilize `react-grid-layout` as a dynamic, user-customizable dashboard engine. Created `WidgetRegistry.tsx` defining 7 modular widgets (AIS Distribution, Oracle Throughput, BCC Latency, Node Fleet, Security Events, Integrity Radar, and Dashboard Notes). Built a `WidgetWrapper.tsx` providing Notion-style drag handles (`⋮⋮`) and action menus to delete blocks. Enabled persistence by storing customized widget lists and layouts directly in LocalStorage, with a reset feature.
 9. **Wallet-interactive writes, for real (Phase 3, 2026-07-12)**: `ExchangePage`'s "Place Order" panel now performs a real two-transaction `IntegrityToken.approve` + `IntegrityMarket.enterPosition` flow (both routed through `SovereignAgent.execute` via `useSovereignAgentWrite`), gated on the connected wallet matching the selected agent's on-chain `controller`. `ShieldPage`'s Smart BAA registry now reads real `SmartBAAFactory.BAACreated` event logs (no oracle endpoint needed — a direct `getLogs` call) and wires real `sign()`/`revoke()` writes for the business-associate side. **`ClaimAgentModal` was fundamentally rewritten**, not just fixed: the previous "claim an agent via signature challenge" premise has no on-chain support at all — `SovereignAgent.rotateController()` is `onlyController`-gated, there is no mechanism for a third party to take over an agent, and the old code submitted a transaction using ERC-20 `approve`'s selector as if it were a claim call, silently swallowing the inevitable failure. The rewritten modal ("Verify Agent Control") does something real instead: resolves the on-chain controller from `XibalbaAgentRegistry`, compares it to the connected wallet, and has the user `personal_sign` a message as a "prove you hold this key now" confirmation — no fake API calls, no transaction that was never going to succeed. All three write paths verified against a real local anvil + oracle stack: a real `enterPosition` transaction moved a market's `outcome_staked` from 0 to a real non-zero value, confirmed via Playwright reading the post-transaction UI state from a real oracle HTTP response.
 10. **userapi auth, tests, and docs (Phases 4-6, 2026-07-12)**: `SettingsPage`'s login/register/API-key management (built by concurrent work referenced in item 7) verified end-to-end via Playwright against a real running `integrity-userapi` + isolated Postgres — register, then a real `POST /api-keys` call, confirmed by the key appearing in a subsequent real `GET /api-keys` re-fetch. Added real test infrastructure: `vitest` (9 unit tests — `oracle.ts` client request-shape assertions, `useSovereignAgentWrite`'s `execute()`-wrapping logic, `AgentContext`'s real-vs-old-hardcoded-fixture behavior, all with mocked network) and `@playwright/test` (`e2e/smoke.spec.ts`, 18 tests — all 16 routes zero-console-error, a real-network-response assertion on `AgentsPage`, wallet-connect-button presence — run against a real live backend+chain per this repo's testing philosophy, not mocked). Rewrote `integrity-mvp/README.md` from the default Vite scaffold into real project docs (setup, env vars, the wallet-interactive model, what's real vs. seeded, test commands).
+11. **UI Validation and Compile Fixes (2026-07-14)**: Resolved strict TypeScript compilation errors across `DashboardPage.tsx` and `FinancePage.tsx` that were preventing `npm run build` from succeeding. Updated the `README.md` to comprehensively detail the MVP's structure and testing requirements, explicitly noting architectural gaps such as the lack of OTel telemetry aggregation and security event persistence in the Oracle backend.
 
 ## What is NOT done yet
 
@@ -140,6 +141,7 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
 - Bundle size: a single ~1.9MB JS chunk (KaTeX, Monaco, and the full wagmi/
   viem/@wagmi/core surface all ship in the main bundle) — noted by Vite's
   own build warning, not yet addressed with code-splitting.
+- **Architectural Gaps for Complete Data**: The Dashboard's Hero Metrics (throughput/latency) require an OTel metrics sink in `integrity-oracle` to aggregate tracing data. Security event alerts (blocked interactions) need event-sourcing in the Oracle to capture `bcc_middleware` policy evaluations. Transaction history requires retroactive USD pricing via an external price feed integration in the Oracle.
 
 Related: [integrity-oracle](integrity-oracle.md),
 [AIS API spec](../concepts/ais-api-spec.md) (the field-shape source of

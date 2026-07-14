@@ -99,7 +99,7 @@ export function CommandPalette() {
               position: 'relative', 
               width: '100%', 
               maxWidth: '600px', 
-              background: 'var(--navy-deep)', 
+              background: 'var(--bg-main)', 
               border: '1px solid var(--glass-border)', 
               borderRadius: 'var(--radius-lg)', 
               overflow: 'hidden',
@@ -119,7 +119,7 @@ export function CommandPalette() {
                   background: 'transparent', 
                   border: 'none', 
                   outline: 'none', 
-                  color: 'white', 
+                  color: 'var(--text-primary)', 
                   fontSize: '1.1rem',
                   padding: 0
                 }}
@@ -165,7 +165,7 @@ export function CommandPalette() {
                         <div style={{ flex: 1, fontSize: '0.9rem', fontWeight: 500 }}>
                           {action.title}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: '10px' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'hsla(var(--bg-panel-hsl) / 0.5)', padding: '2px 8px', borderRadius: '10px' }}>
                           {action.category}
                         </div>
                         {isSelected && (

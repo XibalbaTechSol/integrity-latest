@@ -56,6 +56,8 @@ TEST_AGENTS = [
     ("mock-agent-alpha", "none"),
     ("mock-agent-beta", "none"),
     ("mock-agent-gamma", "healthcare"),
+    ("mock-agent-delta", "finance"),
+    ("mock-agent-epsilon", "supply-chain"),
 ]
 
 

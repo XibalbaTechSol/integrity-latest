@@ -6,7 +6,6 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardPage } from './pages/DashboardPage';
 import { IdentityPage } from './pages/IdentityPage';
 import { ContractsPage } from './pages/ContractsPage';
-import { CognitionPage } from './pages/CognitionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SdkTelemetryPage } from './pages/SdkTelemetryPage';
 import { ExchangePage } from './pages/ExchangePage';
@@ -40,7 +39,6 @@ const AppContent = () => {
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/identity" element={<IdentityPage />} />
         <Route path="/contracts" element={<ContractsPage />} />
-        <Route path="/cognition" element={<CognitionPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/telemetry" element={<SdkTelemetryPage />} />
         <Route path="/exchange" element={<ExchangePage />} />
