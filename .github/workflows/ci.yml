@@ -176,7 +176,7 @@ jobs:
         ports:
           - 5435:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U integrity -d integrity_userapi"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

@@ -1,4 +1,4 @@
-.PHONY: setup chain up down test test-e2e sync-abis demo
+.PHONY: setup chain up down test test-e2e sync-abis
 
 setup:
 	cd contracts && npm install
@@ -8,7 +8,6 @@ setup:
 	cd bcc_middleware && uv sync
 	cd integrity-mvp && npm install
 	cd integrity-userapi && uv sync
-	cd integrity-mvp/demo && uv sync
 
 chain:
 	touch deployments.local.json
@@ -50,12 +49,3 @@ test:
 test-e2e:
 	cd integrity-mvp && npx playwright test
 
-# Runs the real scenario engine (integrity-mvp/demo) against whatever RPC_URL/
-# DEPLOYMENTS_FILE point at — defaults to live Base Sepolia (see
-# integrity-mvp/demo/integrity_demo/config.py). Registers a real 4-persona agent
-# fleet and drives real prediction-market/capital-allocation/healthcare-vertical
-# transactions; every step prints a real BaseScan link. Requires FUNDER_PRIVATE_KEY
-# and INTEGRITY_WALLET_PASSWORD in the environment (or integrity-mvp/demo/.env) — see
-# that package's README for the full walkthrough and honest-gaps list.
-demo:
-	cd integrity-mvp/demo && uv sync && uv run integrity-demo
