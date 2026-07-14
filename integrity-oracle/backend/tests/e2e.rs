@@ -10,6 +10,14 @@
 //! `forge`, and the integrity-sdk venv python on the machine. A bare `cargo test` in an
 //! infra-less CI skips it rather than failing spuriously — the skip is logged, not
 //! silent.
+//!
+//! **Must run with `--test-threads=1` when `ORACLE_E2E=1`.** Every test in this file
+//! shares one `TEST_DATABASE_URL`, and `build_state`'s setup does a destructive
+//! `DROP TABLE ... CASCADE` + re-migrate — running tests in parallel means one test's
+//! setup can wipe another's mid-flight, a real (verified, not theoretical) flake, not a
+//! hypothetical one. `cargo test --test e2e -- --test-threads=1` is correct; the
+//! default parallel `cargo test` is not. (CI itself never hits this: no `ORACLE_E2E` is
+//! set there, so these tests only ever print SKIP.)
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -641,4 +649,96 @@ async fn oracle_e2e_recomputed_grounding_overrides_inflated_client_claim() {
     let ais: serde_json::Value = resp.json().await.unwrap();
     let s_grounding = ais["components"]["grounding"].as_f64().unwrap();
     assert!(s_grounding < 500.0, "S_grounding must reflect the oracle-recomputed low-grounding signal, got {s_grounding}: {ais}");
+}
+
+/// LangSmith-style nested run-tree view (`GET /v1/traces/{trace_id}`, `trace_tree.rs`):
+/// sends a real 3-level parent/child/grandchild span tree via genuine OTel context
+/// propagation (not hand-constructed parent_span_id fields — `otlp_send_span.py`'s
+/// "nested" mode uses real nested `tracer.start_as_current_span` blocks), then asserts
+/// the oracle reconstructs the exact same nesting via the real gRPC receiver + a real
+/// HTTP read.
+#[tokio::test]
+async fn oracle_e2e_trace_tree_reconstructs_real_span_nesting() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_trace_tree_reconstructs_real_span_nesting (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let otlp_port = free_port();
+    let otlp_addr: SocketAddr = format!("127.0.0.1:{otlp_port}").parse().unwrap();
+    let otlp_state = state.clone();
+    tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(backend::otlp::TraceServiceServer::new(backend::otlp::OtlpTraceService::new(otlp_state.clone())))
+            .add_service(backend::otlp::MetricsServiceServer::new(backend::otlp::OtlpMetricsService::new(otlp_state)))
+            .serve(otlp_addr)
+            .await
+            .unwrap();
+    });
+    let mut otlp_ready = false;
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(otlp_addr).await.is_ok() {
+            otlp_ready = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(otlp_ready, "in-process OTLP grpc server never became reachable on {otlp_addr}");
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let script = repo_root().join("integrity-oracle/backend/tests/support/otlp_send_span.py");
+    // tokio::process::Command, not std::process::Command: this test runs on the
+    // default single-threaded #[tokio::test] runtime, and the in-process OTLP server
+    // above is a spawned task on that same runtime — a blocking wait here would starve
+    // it (see oracle_e2e_otlp_ingestion's own comment on this exact pitfall).
+    let output = tokio::process::Command::new(&sdk_python)
+        .args([script.to_str().unwrap(), &format!("127.0.0.1:{otlp_port}"), "did:integrity:trace-tree-e2e-agent", "nested"])
+        .output()
+        .await
+        .expect("integrity-sdk venv python must exist");
+    assert!(output.status.success(), "nested span export failed:\nstdout: {}\nstderr: {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let trace_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(trace_id.len(), 32, "trace_id must be a 32-char hex string, got: {trace_id:?}");
+
+    let resp = http.get(format!("{base}/v1/traces/{trace_id}")).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "trace tree endpoint must find the just-ingested trace: {}", resp.text().await.unwrap());
+    let tree: serde_json::Value = resp.json().await.unwrap();
+
+    assert_eq!(tree["trace_id"], trace_id);
+    assert_eq!(tree["span_count"], 3);
+    assert_eq!(tree["truncated"], false);
+
+    let roots = tree["roots"].as_array().unwrap();
+    assert_eq!(roots.len(), 1, "must reconstruct exactly one root span: {tree}");
+    assert_eq!(roots[0]["name"], "agent-run");
+    let children = roots[0]["children"].as_array().unwrap();
+    assert_eq!(children.len(), 1, "root must have exactly one child: {tree}");
+    assert_eq!(children[0]["name"], "llm-call");
+    let grandchildren = children[0]["children"].as_array().unwrap();
+    assert_eq!(grandchildren.len(), 1, "child must have exactly one grandchild: {tree}");
+    assert_eq!(grandchildren[0]["name"], "tool-call");
+    assert!(grandchildren[0]["children"].as_array().unwrap().is_empty());
+
+    // Unknown trace_id must 404, not silently return an empty tree.
+    let resp = http.get(format!("{base}/v1/traces/0000000000000000000000000000dead")).send().await.unwrap();
+    assert_eq!(resp.status(), 404, "an unknown trace_id must 404");
 }

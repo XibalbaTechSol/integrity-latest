@@ -372,6 +372,27 @@ paths:
           description: Nonce replay
         '429':
           description: Rate limited
+  /v1/traces/{trace_id}:
+    get:
+      tags:
+      - telemetry
+      operationId: get_trace_tree
+      parameters:
+      - name: trace_id
+        in: path
+        description: OTLP trace ID (hex)
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Nested span tree for this trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TraceTreeResponse'
+        '404':
+          description: No spans found for this trace_id — unauthenticated data source (see otlp.rs), so this just means nothing was ever ingested under that ID, not that access was denied
 components:
   schemas:
     AgentJudgeEvaluationDto:
@@ -952,6 +973,59 @@ components:
         verification_tier:
           type: integer
           format: int32
+    SpanTreeNode:
+      type: object
+      required:
+      - id
+      - agent_id
+      - span_id
+      - name
+      - kind
+      - status_code
+      - start_time
+      - end_time
+      - duration_ms
+      - attributes
+      - children
+      properties:
+        agent_id:
+          type: string
+        attributes: {}
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpanTreeNode'
+          description: |-
+            `no_recursion`: `SpanTreeNode` is self-referential (a node's children are more
+            nodes) — without this, utoipa's schema builder recurses into its own field
+            type with no cycle-breaking and stack-overflows at `gen_openapi` runtime. This
+            only affects generated OpenAPI *documentation* depth, not actual serialization
+            (`Vec<SpanTreeNode>` still holds real, arbitrarily-nested data at runtime) or
+            the `MAX_TREE_DEPTH` recursion guard in `build_tree`, which is unrelated and
+            still fully enforced.
+        duration_ms:
+          type: integer
+          format: int64
+          description: |-
+            Always >= 0: `end_time` before `start_time` (a malformed/adversarial span) is
+            clamped to 0 rather than surfacing a negative duration to callers.
+        end_time:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        name:
+          type: string
+        span_id:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        status_code:
+          type: string
     TelemetryEventDetailDto:
       type: object
       required:
@@ -1057,6 +1131,28 @@ components:
           type: string
         zk_verified:
           type: boolean
+    TraceTreeResponse:
+      type: object
+      required:
+      - trace_id
+      - span_count
+      - truncated
+      - roots
+      properties:
+        roots:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpanTreeNode'
+        span_count:
+          type: integer
+          minimum: 0
+        trace_id:
+          type: string
+        truncated:
+          type: boolean
+          description: |-
+            True if the deepest branch was cut off (see `trace_tree::MAX_TREE_DEPTH`) —
+            an honest signal that this isn't the complete tree, never silently dropped.
     VolumeBucket:
       type: object
       required:

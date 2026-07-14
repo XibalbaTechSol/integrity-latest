@@ -1568,3 +1568,46 @@ pub async fn get_otel_volume(
     Ok(Json(buckets))
 }
 
+// ---------------------------------------------------------------------------------
+// GET /v1/traces/{trace_id} — LangSmith-style nested run-tree view over the real
+// OTLP spans in `otel_spans` (see `trace_tree.rs` for the tree-building logic).
+// Top-level (not under /agent/{id}/) because a trace_id is a global identifier —
+// matches real OTel/LangSmith semantics, not scoped to a single agent's routes.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TraceTreeResponse {
+    pub trace_id: String,
+    pub span_count: usize,
+    /// True if the deepest branch was cut off (see `trace_tree::MAX_TREE_DEPTH`) —
+    /// an honest signal that this isn't the complete tree, never silently dropped.
+    pub truncated: bool,
+    pub roots: Vec<crate::trace_tree::SpanTreeNode>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/traces/{trace_id}",
+    params(("trace_id" = String, Path, description = "OTLP trace ID (hex)")),
+    responses(
+        (status = 200, description = "Nested span tree for this trace", body = TraceTreeResponse),
+        (status = 404, description = "No spans found for this trace_id — unauthenticated data source (see otlp.rs), so this just means nothing was ever ingested under that ID, not that access was denied"),
+    ),
+    tag = "telemetry",
+)]
+pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<String>) -> Result<Json<TraceTreeResponse>, AppError> {
+    let spans = db::get_otel_spans_for_trace(&state.pool, &trace_id).await?;
+    if spans.is_empty() {
+        return Err(AppError::TraceNotFound(trace_id));
+    }
+    let span_count = spans.len();
+    let result = crate::trace_tree::build_tree(spans);
+
+    Ok(Json(TraceTreeResponse {
+        trace_id,
+        span_count,
+        truncated: result.truncated,
+        roots: result.roots,
+    }))
+}
+

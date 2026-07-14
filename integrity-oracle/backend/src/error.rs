@@ -13,6 +13,8 @@ use serde_json::json;
 pub enum AppError {
     #[error("agent not found: {0}")]
     AgentNotFound(String),
+    #[error("no spans found for trace_id: {0}")]
+    TraceNotFound(String),
     #[error("agent already registered: {0}")]
     AgentAlreadyExists(String),
     #[error("invalid request: {0}")]
@@ -55,6 +57,7 @@ impl IntoResponse for AppError {
 
         let (status, public_message) = match &self {
             AppError::AgentNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            AppError::TraceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::AgentAlreadyExists(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),

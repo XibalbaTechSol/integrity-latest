@@ -182,6 +182,28 @@ binding; no oracle-to-chain score push exists yet).
   This avoids second-preimage ordering ambiguity and lets contracts use OZ's
   `MerkleProof.verify` directly instead of a custom verifier.
 
+### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
+LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`
+(`integrity-oracle/backend/src/trace_tree.rs`) — the flat, start-time-ordered rows
+`db::get_otel_spans_for_trace` returns, reassembled into a parent/child tree by
+`parent_span_id`. Top-level route (not `/v1/agent/{id}/traces/...`): a `trace_id` is a
+global OTel identifier, not scoped to one agent. Same unauthenticated-data caveat as
+`otel_spans` generally (§1a in `PRODUCTION_GAPS.md`) — a span whose claimed parent isn't
+present in the queried set is surfaced as a root rather than erroring, and a chain
+deeper than `trace_tree::MAX_TREE_DEPTH` (500) is truncated with `truncated: true` in
+the response rather than silently cut. 404 on an unknown `trace_id` means "nothing was
+ever ingested under that ID," not an access-control decision.
+
+**Known tooling gotcha, not an API behavior:** `integrity-oracle/backend/src/openapi.rs`
+splits its `#[derive(OpenApi)] paths(...)` list across two structs
+(`ApiDocCore`/`ApiDocExtra`, merged via `combined_openapi()`) because utoipa 5.5.0
+silently drops the last entry once a single `paths(...)` list exceeds 15 items —
+confirmed by direct testing (macro expansion is correct; the drop happens in utoipa's
+runtime aggregation). Doesn't affect the live server at all (only the separate
+`gen_openapi` dev binary calls this code), but **any future new endpoint must go in
+whichever of the two structs currently has room**, not just be appended to
+`ApiDocCore`, or it will silently vanish from the generated spec the same way.
+
 ## 5. Zero-knowledge proving pipeline (must be real, end-to-end)
 
 1. Circuit lives in `integrity-zkp/src/main.nr` (Noir). It proves: "I know a

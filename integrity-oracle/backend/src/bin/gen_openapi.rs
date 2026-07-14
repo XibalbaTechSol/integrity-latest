@@ -6,11 +6,10 @@
 
 use std::path::Path;
 
-use backend::openapi::ApiDoc;
-use utoipa::OpenApi;
+use backend::openapi::combined_openapi;
 
 fn main() {
-    let yaml = ApiDoc::openapi().to_yaml().expect("OpenApi -> YAML serialization should never fail");
+    let yaml = combined_openapi().to_yaml().expect("OpenApi -> YAML serialization should never fail");
 
     // Path is relative to `integrity-oracle/backend/` (this binary's crate root), three
     // levels up to the monorepo root, then into the versioned spec directory.

@@ -17,6 +17,7 @@ pub mod otlp;
 pub mod phi;
 pub mod routes;
 pub mod stream;
+pub mod trace_tree;
 pub mod zk;
 
 use std::sync::Arc;

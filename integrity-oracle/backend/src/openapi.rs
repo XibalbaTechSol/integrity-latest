@@ -6,6 +6,16 @@
 //! gen-openapi` (see `src/bin/gen_openapi.rs`); wire that into CI so the committed
 //! `spec/ais-api/v1/openapi.yaml` can be diffed against a fresh generation to catch
 //! any handler/schema change that wasn't accompanied by a spec regeneration.
+//!
+//! Split into two `#[derive(OpenApi)]` structs, merged at runtime via
+//! `combined_openapi()`, because of a confirmed utoipa 5.5.0 limitation: a single
+//! `paths(...)` list silently drops its last entry once it holds more than 15 items
+//! (verified directly — removing any one path from a 16-item list makes the 16th
+//! appear again; the macro expansion itself is correct, this is a runtime
+//! aggregation issue on utoipa's side, not a bug in how these are declared). No such
+//! limit was found on `components(schemas(...))` at 42 entries. If upgrading utoipa
+//! ever fixes this upstream, both structs can be folded back into one — nothing here
+//! depends on them staying separate beyond working around the limit.
 
 use utoipa::OpenApi;
 
@@ -38,7 +48,6 @@ use crate::handlers;
         handlers::list_markets,
         handlers::get_market,
         handlers::get_leaderboard,
-        handlers::get_wallet,
     ),
     components(schemas(
         handlers::PrimitiveSetDto,
@@ -62,10 +71,6 @@ use crate::handlers;
         handlers::PositionDto,
         handlers::MarketDetailDto,
         handlers::LeaderboardEntryDto,
-        handlers::WalletPositionDto,
-        handlers::WalletResponse,
-        handlers::TelemetryEventDetailDto,
-        handlers::AgentJudgeEvaluationDto,
     )),
     tags(
         (name = "agents", description = "Agent identity, registration, and on-chain primitive resolution"),
@@ -76,4 +81,17 @@ use crate::handlers;
         (name = "wallet", description = "$ITK balance and open market positions"),
     ),
 )]
-pub struct ApiDoc;
+pub struct ApiDocCore;
+
+/// The overflow half — anything added once `ApiDocCore`'s `paths()` list would hit
+/// the 16-item limit goes here instead. See this module's doc comment.
+#[derive(OpenApi)]
+#[openapi(
+    paths(handlers::get_wallet, handlers::get_trace_tree),
+    components(schemas(handlers::WalletPositionDto, handlers::WalletResponse, handlers::TelemetryEventDetailDto, handlers::AgentJudgeEvaluationDto, handlers::TraceTreeResponse, crate::trace_tree::SpanTreeNode,)),
+)]
+pub struct ApiDocExtra;
+
+pub fn combined_openapi() -> utoipa::openapi::OpenApi {
+    ApiDocCore::openapi().merge_from(ApiDocExtra::openapi())
+}
