@@ -15,7 +15,8 @@ via_ir = true
 fs_permissions = [
   { access = "read-write", path = "../deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
-  { access = "read", path = "./" }
+  { access = "read", path = "./" },
+  { access = "read", path = "../contracts" }
 ]
 
 remappings = [
