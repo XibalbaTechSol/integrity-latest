@@ -151,19 +151,42 @@ jobs:
 
   # Fires only when a required job above fails on `main` (not on PRs — a PR author's own
   # branch shouldn't get an autonomous Jules task filed against it without their say-so).
-  # See the job's own steps for what's actually wired vs. what still needs the repo
-  # owner's one-time setup at jules.google.com + a JULES_API_KEY secret.
+  #
+  # Calls the real Jules API (POST https://jules.googleapis.com/v1alpha/sessions,
+  # X-Goog-Api-Key auth) directly via curl — verified by reading @google/jules-sdk's
+  # actual source (dist/index.mjs), not guessed. AUTOMATION_MODE_AUTO_CREATE_PR means
+  # Jules investigates the failing run and opens a PR with a fix on its own branch; it
+  # never pushes to `main` directly.
+  #
+  # One-time setup still required from the repo owner before this does anything:
+  #   1. Authorize Jules for XibalbaTechSol/integrity-latest at https://jules.google.com
+  #      (grants the Jules GitHub App read/write access to this repo).
+  #   2. Add a JULES_API_KEY repository secret (Settings -> Secrets and variables ->
+  #      Actions), from a key issued at https://jules.google.com/settings/api.
+  # Until both are done this job will fail with 401/404 from the Jules API rather than
+  # silently no-op — that's intentional, so a misconfiguration is visible in the Actions
+  # tab rather than looking like the automation ran and found nothing to do.
   notify-jules-on-failure:
     name: Trigger Jules on main-branch failure
     runs-on: ubuntu-latest
     if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, mvp]
     steps:
-      - name: Report (not yet wired to a live Jules API call)
+      - name: Create a Jules session to investigate and fix the failing run
+        env:
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "CI failed on main. Autonomous Jules triggering is not wired up yet:"
-          echo "1. Authorize Jules for this repo at https://jules.google.com (one-time, repo-owner action)."
-          echo "2. Add a JULES_API_KEY repository secret."
-          echo "3. Replace this step with the real Jules task-creation call once the"
-          echo "   jules MCP server's exact API is confirmed (it wasn't connected in the"
-          echo "   session that authored this workflow — see PRODUCTION_GAPS.md)."
+          if [ -z "$JULES_API_KEY" ]; then
+            echo "::error::JULES_API_KEY secret is not set. See this job's own comments for one-time setup steps."
+            exit 1
+          fi
+          curl -sS -X POST "https://jules.googleapis.com/v1alpha/sessions" \
+            -H "X-Goog-Api-Key: ${JULES_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+                --arg prompt "CI failed on main (run: ${RUN_URL}, commit: ${{ github.sha }}). Investigate the failing job's logs, identify the root cause, fix it, and open a PR. Do not force-push or bypass the existing test suite to make it pass." \
+                --arg title "Auto-fix: CI failure on main (${{ github.sha }})" \
+                --arg source "sources/github/${{ github.repository }}" \
+                '{prompt: $prompt, title: $title, sourceContext: {source: $source, githubRepoContext: {startingBranch: "main"}}, automationMode: "AUTO_CREATE_PR", requirePlanApproval: false}')" \
+            --fail-with-body
