@@ -61,6 +61,8 @@ def deployed_chain():
         else:
             raise RuntimeError("anvil did not become reachable")
 
+        (CONTRACTS_DIR.parent / "deployments.local.json").touch(exist_ok=True)
+
         result = subprocess.run(
             ["forge", "script", "script/Deploy.s.sol", "--rpc-url", rpc_url, "--broadcast"],
             cwd=CONTRACTS_DIR,

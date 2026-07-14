@@ -13,6 +13,7 @@ deployments.local.json. Mirrors bcc_middleware/tests/conftest.py's
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import time
@@ -65,12 +66,14 @@ def deployed_chain():
     try:
         _wait_for_rpc(rpc_url)
 
+        (CONTRACTS_DIR.parent / "deployments.local.json").touch(exist_ok=True)
+
         result = subprocess.run(
             ["forge", "script", "script/Deploy.s.sol", "--rpc-url", rpc_url, "--broadcast"],
             cwd=CONTRACTS_DIR,
             capture_output=True,
             text=True,
-            env={"FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY, "PATH": "/usr/bin:/bin:/usr/local/bin:" + str(Path.home() / ".foundry" / "bin")},
+            env={**os.environ, "FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY},
         )
         if result.returncode != 0:
             raise RuntimeError(f"Deploy.s.sol failed:\n{result.stdout}\n{result.stderr}")
@@ -93,7 +96,7 @@ def deployed_chain():
             cwd=CONTRACTS_DIR,
             capture_output=True,
             text=True,
-            env={"FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY, "PATH": "/usr/bin:/bin:/usr/local/bin:" + str(Path.home() / ".foundry" / "bin")},
+            env={**os.environ, "FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY},
         )
         if markets_result.returncode != 0:
             raise RuntimeError(f"DeployMarkets.s.sol failed:\n{markets_result.stdout}\n{markets_result.stderr}")
