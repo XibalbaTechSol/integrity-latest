@@ -99,10 +99,15 @@ pub struct AisComponentInputs {
     /// but the protocol can't distinguish that from an agent hiding misbehavior, so
     /// it scores ungrounded agents lower on this axis specifically.
     pub hgi_raw: f64,
-    /// Cumulative GPU-hours of *verified* (not self-reported) compute the agent has
-    /// contributed, e.g. to shared training/inference workloads. This is the
-    /// "sacrifice" metric: costly, hard-to-fake evidence of real resource commitment,
-    /// as opposed to cheap-to-fake claims. Always >= 0.0.
+    /// An hours-equivalent proxy for the agent's compute/resource commitment (the
+    /// "sacrifice" metric) — despite the field name, this is NOT independently verified
+    /// GPU-hours telemetry; no such measurement exists in this protocol yet. It's
+    /// `backend::derive::derive_sacrifice`'s server-side recomputation of total tokens
+    /// processed (from the same signed telemetry `entropy`/`grounding` are derived
+    /// from) divided by a documented heuristic constant — real arithmetic on
+    /// oracle-recomputed data, not a client's self-reported claim (see
+    /// `docs/wiki/concepts/ais.md` and `PRODUCTION_GAPS.md` for what independent
+    /// GPU-hour verification would require and why it isn't built). Always >= 0.0.
     pub gpu_hours_verified: f64,
     /// Fraction of the agent's telemetry events in the period that were flagged by
     /// policy evaluation (i.e. the BCC/OPA pipeline in bcc_middleware denied or

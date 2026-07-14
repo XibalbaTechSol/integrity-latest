@@ -13,7 +13,14 @@ read), so this script signs the envelope directly instead of depending on that g
 resolution.
 
 Args (all via argv): private_key_hex, agent_id, nonce (int), entropy, grounding,
-sacrifice, compliance (floats)
+sacrifice, compliance (floats), otel_spans_json (optional, default "[]")
+
+`derived_signals` here is the CLAIMED value — since the oracle now independently
+recomputes entropy/grounding/sacrifice from `otel_spans` content rather than trusting
+this claim (see `backend/src/derive.rs`), a caller can pass a claim that deliberately
+disagrees with what `otel_spans` actually contains, to prove the oracle's recomputation
+wins (see `oracle_e2e_recomputed_grounding_overrides_inflated_client_claim` in
+`tests/e2e.rs`).
 
 Prints the full signed JSON payload (ready to POST as-is) to stdout.
 """
@@ -32,11 +39,12 @@ def main() -> None:
     agent_id = sys.argv[2]
     nonce = int(sys.argv[3])
     entropy, grounding, sacrifice, compliance = (float(x) for x in sys.argv[4:8])
+    otel_spans = json.loads(sys.argv[8]) if len(sys.argv) > 8 else []
 
     signable = {
         "agent_id": agent_id,
         "nonce": nonce,
-        "otel_spans": [],
+        "otel_spans": otel_spans,
         "derived_signals": {
             "entropy": entropy,
             "grounding": grounding,

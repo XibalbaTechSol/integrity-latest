@@ -47,6 +47,57 @@ genuinely open, not a restatement of the original three gaps.
   aggregates/compression policies (Timescale features that matter once volume is large)
   are also not configured yet — not needed at current/MVP volume.
 
+### 1a. AIS input-signal trust (server-side re-derivation)
+*Current State:* `POST /v1/telemetry/ingest` used to store the client's self-reported
+`derived_signals` (entropy/grounding/sacrifice/compliance) verbatim as the actual AIS
+inputs — a signature proved *who* sent them, never *whether they were honest*. The
+oracle now independently recomputes entropy/grounding/sacrifice server-side from the
+raw `otel_spans` content already inside the same signed request (`backend/src/derive.rs`,
+mirroring `integrity_sdk/telemetry/derive.py`'s algorithms and `crate::phi`'s
+defense-in-depth posture), and does the on-chain "compliance gate wins" check itself
+rather than trusting an SDK-side opt-in. Verified end-to-end
+(`oracle_e2e_recomputed_grounding_overrides_inflated_client_claim`): a client claiming
+an inflated grounding score while its own signed `otel_spans` contain hallucination
+markers gets the oracle's low, real recomputation stored and scored, not its claim.
+Two pre-existing scoring-formula bugs, found while making this change, were fixed in
+the same pass: `performance_variance`'s polarity was inverted relative to what
+`calculate_entropy_score` expects (stable claims scored *worse*), and `gpu_hours_verified`
+was double-log-compressed (SDK pre-normalized to `[0,1]`, then `scoring-core` log-compressed
+again) — both fixed at the `derive.rs` call site, no `scoring-core` changes needed.
+
+**Still open, deliberately out of scope for this pass:**
+* **ZK-boost binding is looser than the name implies.** `db::aggregate_for_ais` computes
+  `zk_verified_this_period` as `BOOL_OR(zk_verified)` over the whole reporting window — a
+  single ZK-proof-bearing submission flips the boost boolean for the *entire period's
+  average*, not just the specific event the proof was submitted with.
+  `ingest_telemetry` never decodes/cross-checks the proof's `public_inputs` against the
+  specific submission's `nonce`/`derived_signals` either. Tightening this to a genuine
+  per-event binding needs a circuit/on-chain change (the real ZK circuit,
+  `integrity-zkp/src/main.nr`, proves identity+intent-commitment binding only — it has no
+  numeric/behavioral inputs today, so it doesn't attest to entropy/grounding/sacrifice
+  claims at all).
+* **TEE/Tier-3 attestation is unwired.** `integrity_sdk/security/attestation.py`'s Nitro
+  attestation *verifier* is real, tested against a real captured AWS fixture, and
+  correctly pins the root CA — but nothing in the codebase calls it. No oracle endpoint
+  resolves an agent to Tier 3 ("Institutional," AIS ceiling 1000 per the README's
+  verification ladder) via a real attestation check.
+  `NitroAttestationGenerator.get_attestation_document` is an honest
+  `NotImplementedError` (no enclave hardware available), not a mock.
+* **`covered_entity_address` spoofing.** The oracle's on-chain compliance check trusts
+  whatever `covered_entity_address` a client supplies in `otel_spans[].metadata` — an
+  agent could name a genuinely-compliant third party's address to earn the on-chain-wins
+  ceiling without being that entity's agent. Identical, pre-existing behavior to the
+  SDK's own caller-supplied `covered_entity_address` kwarg (`derive.py`) — not a new gap
+  introduced here.
+* **Oracle-to-chain score push does not exist.** No code path anywhere in the monorepo
+  signs/submits a `ReputationRegistry.updateScore` transaction — `chain.rs` is
+  deliberately read-only. `IntegrityMarket`/`A2ACapitalPool` have real, deployed AIS
+  gates, but every agent's on-chain `effectiveScore` is frozen at its zero default
+  because of this gap, so none of the above input-signal hardening has a live economic
+  consumer yet. Building this is a separate, much larger decision (it requires giving
+  the oracle a signing key — a new trust boundary the architecture deliberately doesn't
+  have today) and was explicitly out of scope for this pass.
+
 ## 2. Python SDK (`integrity-sdk`)
 *Current State:* The SDK is surprisingly mature in its tracing infrastructure. `core.py` and `mlflow_tracing.py` already implement `TracerProvider` and `MeterProvider` with OTLP/gRPC exporters. 
 * **Gap - Chain of Thought Structuring:** While OpenTelemetry is present, the specific "Chain of Thought" reasoning trees (hypotheses, contradiction checks) are likely being logged as flat unstructured attributes or raw strings. The SDK must be updated to emit these as explicit directed acyclic graphs (DAGs) using parent-child span relationships so the UI's `ChainOfThoughtPage` can visualize the nodes correctly.

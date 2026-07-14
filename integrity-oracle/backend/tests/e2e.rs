@@ -341,7 +341,17 @@ async fn oracle_e2e_register_verify_ais_compliance() {
 /// implementation — the exact bytes `crypto::verify_agent_signature` must agree with —
 /// rather than approximating the wire format in Rust.
 #[allow(clippy::too_many_arguments)]
-fn sign_telemetry(private_key: &str, agent_id: &str, nonce: u64, entropy: f64, grounding: f64, sacrifice: f64, compliance: f64) -> serde_json::Value {
+#[allow(clippy::too_many_arguments)]
+fn sign_telemetry_with_spans(
+    private_key: &str,
+    agent_id: &str,
+    nonce: u64,
+    entropy: f64,
+    grounding: f64,
+    sacrifice: f64,
+    compliance: f64,
+    otel_spans: &serde_json::Value,
+) -> serde_json::Value {
     let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
     let script = repo_root().join("integrity-oracle/backend/tests/support/sign_telemetry.py");
     let output = Command::new(sdk_python)
@@ -354,6 +364,7 @@ fn sign_telemetry(private_key: &str, agent_id: &str, nonce: u64, entropy: f64, g
             &grounding.to_string(),
             &sacrifice.to_string(),
             &compliance.to_string(),
+            &otel_spans.to_string(),
         ])
         .output()
         .expect("integrity-sdk venv python must exist (run `uv pip install -e .` in integrity-sdk)");
@@ -364,6 +375,10 @@ fn sign_telemetry(private_key: &str, agent_id: &str, nonce: u64, entropy: f64, g
         String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).expect("sign_telemetry.py must print a JSON payload")
+}
+
+fn sign_telemetry(private_key: &str, agent_id: &str, nonce: u64, entropy: f64, grounding: f64, sacrifice: f64, compliance: f64) -> serde_json::Value {
+    sign_telemetry_with_spans(private_key, agent_id, nonce, entropy, grounding, sacrifice, compliance, &serde_json::json!([]))
 }
 
 /// Real OTLP/gRPC ingestion (PRODUCTION_GAPS.md §1 item 2), exercised with the SDK's
@@ -544,4 +559,86 @@ async fn oracle_e2e_sse_matches_direct_ais() {
         "SSE-pushed AIS must exactly match a direct GET /ais read (single computation path)"
     );
     assert_eq!(ais_from_stream["components"], direct["components"]);
+}
+
+/// Proves the actual point of the AIS input-signal trust hardening: a client that
+/// signs a request CLAIMING an inflated `grounding=0.95` alongside `otel_spans` whose
+/// real text content is full of hallucination markers must have the LOW,
+/// oracle-recomputed value (~0.40, from `derive::keyword_grounding_score`) land in
+/// storage and in the AIS breakdown — never the client's claim. Built on the grounding
+/// axis specifically: unlike entropy, grounding's SDK->scoring-core mapping has no
+/// pre-existing polarity bug, so this assertion isn't confounded by anything except
+/// the one thing it's testing.
+#[tokio::test]
+async fn oracle_e2e_recomputed_grounding_overrides_inflated_client_claim() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_recomputed_grounding_overrides_inflated_client_claim (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:grounding-override-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    let otel_spans = serde_json::json!([{
+        "kind": "telemetry",
+        "metadata": { "text_output": "I'm not sure, I think I might hallucinate this answer." }
+    }]);
+
+    // Client CLAIMS an inflated grounding=0.95 (as if the text were clean) while the
+    // otel_spans it signs alongside that claim actually contain hallucination markers.
+    let payload = sign_telemetry_with_spans(&private_key, agent_id, 1, 0.9, 0.95, 0.0, 0.0, &otel_spans);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "well-formed, validly-signed request must be accepted: {}", resp.text().await.unwrap());
+
+    // Read back what was actually stored via the real telemetry-history endpoint — must
+    // reflect the ORACLE's recomputation (0.40, hallucination markers detected), never
+    // the client's inflated claim (0.95).
+    let resp = http.get(format!("{base}/v1/agent/{agent_id}/telemetry")).send().await.unwrap();
+    let history: serde_json::Value = resp.json().await.unwrap();
+    let stored_hgi_raw = history.as_array().unwrap()[0]["hgi_raw"].as_f64().unwrap();
+    assert!(
+        (stored_hgi_raw - 0.40).abs() < 1e-6,
+        "stored grounding must be the oracle's own recomputation (0.40), not the client's inflated claim (0.95): got {stored_hgi_raw}"
+    );
+
+    // And the AIS breakdown must show the LOW S_grounding component, not one that
+    // reflects the client's claim-inflated 0.95.
+    let resp = http.get(format!("{base}/v1/agent/{agent_id}/ais")).send().await.unwrap();
+    let ais: serde_json::Value = resp.json().await.unwrap();
+    let s_grounding = ais["components"]["grounding"].as_f64().unwrap();
+    assert!(s_grounding < 500.0, "S_grounding must reflect the oracle-recomputed low-grounding signal, got {s_grounding}: {ais}");
 }

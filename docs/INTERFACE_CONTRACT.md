@@ -158,6 +158,21 @@ Barretenberg proof was verified for the reporting period, else `1.0`. This
 formula lives in `integrity-oracle/scoring-core` and is the only place it's computed —
 other packages call the oracle's `/v1/agent/{id}/ais` endpoint rather than recompute it.
 
+**Input-signal trust:** the four `S_*` inputs (`performance_variance`, `hgi_raw`,
+`gpu_hours_verified`, `penalty_ratio`) are **not** taken from a client's self-reported
+`derived_signals` in `POST /v1/telemetry/ingest`. The oracle independently recomputes
+entropy/grounding/sacrifice server-side from the same request's `otel_spans` content
+(`integrity-oracle/backend/src/derive.rs`, mirroring `integrity_sdk/telemetry/derive.py`'s
+algorithms), and does the on-chain `ComplianceGate` "wins" check itself rather than
+trusting an SDK-side opt-in. A client's signature proves who sent a request; it was
+never proof the claimed numbers were honest, and this is the layer that closes that gap.
+`derived_signals` is still part of the signed envelope (so old clients don't break) and
+is still stored, but purely as an audit trail (`telemetry_events.payload.derived_signals`
+vs. `payload.oracle_recomputed_signals`) — it does not feed the formula. See
+[`docs/wiki/concepts/ais.md`](wiki/concepts/ais.md) for the full data-flow diagram and
+`PRODUCTION_GAPS.md` §1a for what's still open (ZK-boost is a period-wide, not per-event,
+binding; no oracle-to-chain score push exists yet).
+
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in
   `StateAnchor.sol`, and keccak256 is native/cheap in the EVM.
