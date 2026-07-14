@@ -77,6 +77,11 @@ def anvil_chain():
 
     port = _free_port()
     rpc_url = f"http://127.0.0.1:{port}"
+
+    # Ensure foundry.toml fs_permissions don't block the genesis script
+    deployments_file = Path(__file__).resolve().parents[2] / "deployments.local.json"
+    deployments_file.touch(exist_ok=True)
+
     proc = subprocess.Popen(
         ["anvil", "--port", str(port), "--silent"],
         stdout=subprocess.DEVNULL,
