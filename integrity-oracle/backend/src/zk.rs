@@ -152,7 +152,7 @@ impl ZkVerifier {
             return Ok(true);
         }
         if !output.status.success()
-            && (stdout.contains("verification failed") || stderr.contains("verification failed"))
+            && (stdout.contains("verification failed") || stderr.contains("verification failed") || stderr.contains("public inputs file size must be a multiple of 32 bytes"))
         {
             return Ok(false);
         }
