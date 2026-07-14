@@ -33,9 +33,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm install
+        working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
 
@@ -90,6 +95,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
       - run: uv sync
         working-directory: integrity-sdk
       - run: uv run pytest
@@ -122,20 +130,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - name: Install OPA
+        run: |
+          sudo curl --fail -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
+          sudo chmod +x /usr/local/bin/opa
       - run: uv sync
         working-directory: bcc_middleware
       - run: uv run pytest
         working-directory: bcc_middleware
-      - name: Install OPA
-        run: |
-          curl --fail -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
-          chmod +x /usr/local/bin/opa
       - run: opa test policies/ -v
         working-directory: bcc_middleware
 
   userapi:
     name: integrity-userapi (pytest)
     runs-on: ubuntu-latest
+    services:
+      userapi-postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: integrity_userapi
+          POSTGRES_USER: integrity
+          POSTGRES_PASSWORD: integrity_dev_only
+        ports:
+          - 5435:5432
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
