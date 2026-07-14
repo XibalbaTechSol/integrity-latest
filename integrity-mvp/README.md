@@ -2,16 +2,24 @@
 
 The unified React/Vite/TS dashboard for the Integrity Protocol. It serves as the primary product surface for interacting with autonomous agents, analyzing their behavior, allocating capital, and monitoring the Oracle network.
 
+## Core Features
+
+- **Global Fleet Dashboard:** Displays a customizable grid layout of widgets rendering network security scores, throughput, and global pre-execution policy gating latency.
+- **Agent Intelligence & Chain of Thought:** Connects to the Integrity Oracle to stream live OpenTelemetry (OTLP) spans and structural graphs of agent logic in real-time.
+- **Finance & Exchange:** Manage decentralized capital, stake tokens to Agent SmartBAAs, and review on-chain interactions securely gated by the BCC Middleware.
+- **Identity & Compliance:** Complete sovereign agent identity verification, visualize zero-knowledge attestation records, and ensure TEE environments remain untampered.
+
 ## Architecture
 
 This application is built with:
 - **React + Vite** for fast development and building.
-- **TypeScript** for strict type safety.
+- **TypeScript** for strict type safety and interface definitions mapping to Rust backend DTOs.
 - **Lucide React** for iconography.
 - **Recharts** for data visualization.
 - **React-Grid-Layout** for a customizable, widget-based dashboard.
+- **React Flow & Dagre** for Chain of Thought directed acyclic graphs.
 
-It interfaces directly with the `integrity-oracle` backend to stream real-time agent telemetry, market data, and trust scores (AIS - Agentic Integrity Score).
+It interfaces directly with the `integrity-oracle` backend via HTTP and Server-Sent Events (SSE) to stream real-time agent telemetry, market data, and trust scores (AIS - Agentic Integrity Score). The state is globally managed via Context providers (e.g., `AgentContext.tsx`), ensuring seamless reactive updates across all pages when navigating or switching active agents.
 
 ## Getting Started
 
@@ -44,7 +52,7 @@ End-to-End tests are powered by Playwright. As per the repository's "No Silent M
 npm run test:e2e
 ```
 
-*Note: E2E tests require the backend infrastructure (Anvil, Postgres, Oracle) to be running. Review `docs/TESTING.md` for the overarching test philosophy.*
+*Note: E2E tests require the backend infrastructure (Anvil, Postgres, Oracle) to be running via `docker-compose`. Review `docs/TESTING.md` for the overarching test philosophy.*
 
 ## Architectural Gaps & Next Steps
 
@@ -63,3 +71,8 @@ Following the core directive to build a truthful system without "aspirational" m
 3. **Transaction USD Valuation**
    - **Current State**: `TransactionDto` permits `usd: string | null`, as the Oracle currently lacks a price-feed mechanism to evaluate historical transactions in USD.
    - **Gap**: To provide accurate portfolio valuation, the Oracle must integrate with an external price feed (e.g., Chainlink) to retroactively price tokens during transaction ingestion.
+
+4. **WebSocket/SSE Upgrades for Fleet Metrics**
+   - **Current State**: `useOracleStream` handles single-agent and global SSE events, but some global widgets (Throughput, Latency, Radar) rely on static data.
+   - **Gap**: Dashboard requires holistic SSE payloads encompassing network-wide state beyond just the `AisUpdate`.
+   - **Solution**: Extend `stream.rs` in the Oracle to broadcast `NetworkStatsUpdate` payloads.

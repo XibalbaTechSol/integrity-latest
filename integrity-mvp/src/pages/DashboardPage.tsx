@@ -8,6 +8,7 @@ import { useOracleStream } from '../hooks/useOracleStream';
 import { WidgetRegistry } from '../components/widgets/WidgetRegistry';
 import { WidgetWrapper } from '../components/widgets/WidgetWrapper';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAgent } from '../contexts/AgentContext';
 
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -61,8 +62,9 @@ const DEFAULT_LAYOUTS = {
 };
 
 export const DashboardPage = () => {
+  const { selectedAgent } = useAgent();
   const [isEditing, setIsEditing] = useState(false);
-  const { latestAis } = useOracleStream();
+  const { latestAis } = useOracleStream(selectedAgent?.id);
   const [agentScores, setAgentScores] = useState<Record<string, number>>({});
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [widgets, setWidgets] = useState<Array<{ id: string; type: string }>>([]);
@@ -112,7 +114,7 @@ export const DashboardPage = () => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [selectedAgent]);
 
   // Update real-time score map and distribution
   useEffect(() => {
@@ -125,7 +127,11 @@ export const DashboardPage = () => {
   }, [latestAis]);
 
   useEffect(() => {
-    const scores = Object.values(agentScores);
+    // If an agent is selected, maybe we show just that agent's stats
+    const scores = selectedAgent && agentScores[selectedAgent.id] !== undefined
+        ? [agentScores[selectedAgent.id]]
+        : Object.values(agentScores);
+    
     const total = scores.length;
     const high = scores.filter(s => s >= 900).length;
     const mid = scores.filter(s => s >= 700 && s < 900).length;
@@ -136,11 +142,16 @@ export const DashboardPage = () => {
         { name: 'Low (<700)', count: low, fill: 'var(--danger)' },
     ]);
     if (total > 0) {
-      setHighIntegrityPct(Math.round((high / total) * 100));
+      if (selectedAgent && agentScores[selectedAgent.id] !== undefined) {
+          // Display raw AIS score instead of percentage for a single agent
+          setHighIntegrityPct(Math.round(agentScores[selectedAgent.id]));
+      } else {
+          setHighIntegrityPct(Math.round((high / total) * 100));
+      }
     } else {
       setHighIntegrityPct(0);
     }
-  }, [agentScores]);
+  }, [agentScores, selectedAgent]);
 
   const onLayoutChange = (_layout: Layout[], allLayouts: any) => {
     // Only update layouts state, don't write to localStorage until saved or editing

@@ -10,6 +10,7 @@ import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import { oracle, type SpanTreeNode } from '../services/oracle';
 import { useOracleStream } from '../hooks/useOracleStream';
+import { useAgent } from '../contexts/AgentContext';
 
 const LATENCY_METRICS = [
   { time: '10:00', avg: 120, max: 250 },
@@ -109,6 +110,7 @@ function formatStreamTime(iso: string): string {
 }
 
 export const ChainOfThoughtPage = () => {
+  const { selectedAgent } = useAgent();
   const [activeTab, setActiveTab] = useState(1);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -121,16 +123,18 @@ export const ChainOfThoughtPage = () => {
   // Real SSE stream (all agents) — see backend/src/stream.rs. Doubles as both the Live
   // Stream tab's data source and how we discover trace_ids to offer in the Historical
   // Traces tab (there's no "list recent traces" endpoint, only get-by-id).
-  const { events, connected } = useOracleStream(undefined, 100);
+  const { events, connected } = useOracleStream(selectedAgent?.id, 100);
   const displayedEvents = isLive ? events : events.slice(0, 0);
 
   const recentTraceIds = useMemo(() => {
     const seen = new Map<string, string>(); // trace_id -> most recent span name
     for (const e of events) {
-      if (e.type === 'OtelSpan' && !seen.has(e.trace_id)) seen.set(e.trace_id, e.name);
+      if (e.type === 'OtelSpan' && (!selectedAgent || e.agent_id === selectedAgent.id)) {
+        if (!seen.has(e.trace_id)) seen.set(e.trace_id, e.name);
+      }
     }
     return Array.from(seen.entries());
-  }, [events]);
+  }, [events, selectedAgent]);
 
   useEffect(() => {
     if (!selectedTraceId && recentTraceIds.length > 0) {
