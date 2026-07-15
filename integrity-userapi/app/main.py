@@ -11,6 +11,7 @@ stores only a DID pointer, never a cache of full agent state.
 
 from __future__ import annotations
 
+import asyncio
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -217,9 +218,12 @@ async def list_my_agents(
         "SELECT agent_did, added_at FROM user_agents WHERE user_id = $1 ORDER BY added_at DESC",
         UUID(user_id),
     )
+    lookups = await asyncio.gather(
+        *(oracle_client.fetch_agent(row["agent_did"], settings) for row in rows)
+    )
+
     results: list[OwnedAgentResponse] = []
-    for row in rows:
-        lookup = await oracle_client.fetch_agent(row["agent_did"], settings)
+    for row, lookup in zip(rows, lookups):
         results.append(
             OwnedAgentResponse(
                 agent_did=row["agent_did"],
