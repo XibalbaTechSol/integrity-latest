@@ -23,9 +23,11 @@ on the failure category.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -40,10 +42,50 @@ from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
 from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse
 from app import anchor as anchor_module
 from app import opa_client
+from app import scoring_loop as scoring_loop_module
 
 logger = logging.getLogger("bcc_middleware")
 
-app = FastAPI(title="BCC Middleware", version="3.0.0")
+_score_sync_task: asyncio.Task | None = None
+
+
+async def _score_sync_loop(settings: Settings) -> None:
+    """
+    Background loop, started at app startup: every
+    `score_sync_interval_seconds`, runs one full run_sync_cycle over every
+    agent the oracle knows about. Wrapped in try/except so one bad cycle
+    (oracle hiccup, RPC blip) logs and retries on the next tick rather than
+    killing the loop -- this is the ONLY thing that keeps agent scores
+    moving on-chain at all today, so it must not silently stop running.
+    """
+    while True:
+        try:
+            result = await asyncio.to_thread(scoring_loop_module.run_sync_cycle, settings, now=time.time())
+            pushed = sum(1 for r in result.results if r.score_pushed)
+            disputed = sum(1 for r in result.results if r.dispute_raised)
+            if result.errors:
+                logger.warning("score sync cycle: %s", "; ".join(result.errors))
+            else:
+                logger.info(
+                    "score sync cycle: %d agents seen, %d scores pushed, %d disputes raised",
+                    result.agents_seen, pushed, disputed,
+                )
+        except Exception:
+            logger.exception("score sync cycle crashed, will retry next interval")
+        await asyncio.sleep(settings.score_sync_interval_seconds)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _score_sync_task
+    if default_settings.score_sync_enabled:
+        _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
+    yield
+    if _score_sync_task is not None:
+        _score_sync_task.cancel()
+
+
+app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
 
 # Process-local state. See nonce_store.py / circuit_breaker.py docstrings
 # for why in-memory is an accepted scope limitation for this service today
@@ -173,6 +215,31 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
 @app.post("/v1/bcc/intercept", response_model=BCCInterceptResponse)
 async def intercept(commitment: BCCCommitment) -> BCCInterceptResponse:
     return await run_intercept(commitment, default_settings)
+
+
+@app.post("/v1/reputation/sync")
+async def force_score_sync() -> dict:
+    """
+    Operational/testing hook: run one score-sync cycle right now instead of
+    waiting for the periodic loop. Not part of the interface contract; only
+    exists so integration tests and operators don't have to wait
+    `score_sync_interval_seconds` to observe a push.
+    """
+    result = await asyncio.to_thread(scoring_loop_module.run_sync_cycle, default_settings, now=time.time())
+    return {
+        "agents_seen": result.agents_seen,
+        "errors": result.errors,
+        "results": [
+            {
+                "agent_id": r.agent_id,
+                "score_pushed": r.score_pushed,
+                "score_detail": r.score_detail,
+                "dispute_raised": r.dispute_raised,
+                "dispute_detail": r.dispute_detail,
+            }
+            for r in result.results
+        ],
+    }
 
 
 @app.post("/v1/bcc/anchor/flush")

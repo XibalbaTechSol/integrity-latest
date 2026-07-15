@@ -112,6 +112,8 @@ def anvil_chain():
 
         baa_address = _deploy("MockBAARegistry.sol", "MockBAARegistry")
         anchor_address = _deploy("MockStateAnchor.sol", "MockStateAnchor")
+        reputation_registry_address = _deploy("MockReputationRegistry.sol", "MockReputationRegistry")
+        slasher_address = _deploy("MockSlasher.sol", "MockSlasher")
 
         yield {
             "rpc_url": rpc_url,
@@ -121,6 +123,10 @@ def anvil_chain():
             "baa_address": baa_address,
             "anchor_address": anchor_address,
             "baa_abi": _load_artifact("MockBAARegistry.sol", "MockBAARegistry")["abi"],
+            "reputation_registry_address": reputation_registry_address,
+            "reputation_registry_abi": _load_artifact("MockReputationRegistry.sol", "MockReputationRegistry")["abi"],
+            "slasher_address": slasher_address,
+            "slasher_abi": _load_artifact("MockSlasher.sol", "MockSlasher")["abi"],
         }
     finally:
         proc.terminate()

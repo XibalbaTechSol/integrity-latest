@@ -88,6 +88,41 @@ class Settings:
         default_factory=lambda: os.getenv("ANCHOR_SIGNER_PRIVATE_KEY")
     )
 
+    # --- Reputation sync / slashing (app/reputation.py, app/scoring_loop.py) ---
+    # Closes the loop nothing else in the monorepo does: pushes each agent's
+    # oracle-computed AIS to its ReputationRegistry clone, and raises a
+    # Slasher dispute when the oracle's own flagged-telemetry ratio crosses a
+    # threshold. See app/reputation.py's module docstring for why this lives
+    # in bcc_middleware rather than a new service or integrity-oracle itself.
+    #
+    # Falls back to anchor_signer_private_key when unset -- on today's
+    # single-operator testnet deployment (deployments.baseSepolia.json's
+    # protocolAddresses) oracleSigner/disputer/the anchor signer are the same
+    # address, so a distinct key would just duplicate the same secret. Set
+    # this explicitly once production key-separation happens.
+    reputation_signer_private_key: str | None = field(
+        default_factory=lambda: os.getenv("REPUTATION_SIGNER_PRIVATE_KEY")
+    )
+    score_sync_enabled: bool = field(default_factory=lambda: _bool_env("SCORE_SYNC_ENABLED", True))
+    score_sync_interval_seconds: int = field(default_factory=lambda: int(os.getenv("SCORE_SYNC_INTERVAL_SECONDS", "300")))
+    dispute_enabled: bool = field(default_factory=lambda: _bool_env("DISPUTE_ENABLED", True))
+    # Minimum telemetry events in the lookback window before a flagged-ratio
+    # is even considered -- prevents one flagged event out of one total from
+    # reading as "100% flagged".
+    dispute_min_events: int = field(default_factory=lambda: int(os.getenv("DISPUTE_MIN_EVENTS", "5")))
+    dispute_flagged_ratio_threshold: float = field(default_factory=lambda: float(os.getenv("DISPUTE_FLAGGED_RATIO_THRESHOLD", "0.5")))
+    # Bucket window the flagged-ratio is computed over -- one of the oracle's
+    # allowed history buckets (backend::handlers::parse_bucket_interval).
+    dispute_lookback_bucket: str = field(default_factory=lambda: os.getenv("DISPUTE_LOOKBACK_BUCKET", "1h"))
+    # Basis points of an agent's currently-AVAILABLE (unlocked) stake to lock
+    # per raised dispute, not the whole stake -- raising only locks funds
+    # (see Slasher.sol's own NatSpec), so this is deliberately conservative;
+    # an arbiter decides the actual slash amount at resolveDispute time.
+    dispute_stake_bps: int = field(default_factory=lambda: int(os.getenv("DISPUTE_STAKE_BPS", "1000")))
+    # Per-agent cooldown between automated disputes, so one ongoing
+    # misbehavior pattern doesn't raise a fresh dispute every sync cycle.
+    dispute_cooldown_seconds: int = field(default_factory=lambda: int(os.getenv("DISPUTE_COOLDOWN_SECONDS", "86400")))
+
     def load_deployments(self) -> dict:
         """
         Best-effort read of the shared deployments.local.json (§6). Missing
