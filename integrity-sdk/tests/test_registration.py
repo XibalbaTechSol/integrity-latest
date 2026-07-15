@@ -34,6 +34,7 @@ def _env(tmp_path, monkeypatch, deployed_chain):
         "singletons": {
             "AgentPrimitivesFactory": addr["AgentPrimitivesFactory"],
             "IntegrityToken": addr["IntegrityToken"],
+            "XibalbaAgentRegistry": addr["XibalbaAgentRegistry"],
         },
         "protocolAddresses": {"oracleSigner": deployed_chain["funder"].address},
     }
@@ -79,6 +80,29 @@ def test_register_agent_persists_document_and_primitives(tmp_path):
 
     primitives = json.loads(primitives_path.read_text())
     assert primitives["sovereign_agent"] == result.sovereign_agent
+
+
+def test_register_agent_is_idempotent_for_an_already_registered_did():
+    """
+    Regression test for PRODUCTION_GAPS.md Sec3: register_agent() used to
+    always deploy a FRESH SovereignAgent/StateAnchor pair on every call, so
+    calling it twice for the same identity (a real retry-after-partial-failure
+    scenario, or simply an idempotent re-run) deployed a second, orphaned pair
+    that then reverted AlreadyRegistered() at the final registerPrimitives
+    step -- after gas and testnet ITK were already spent on the throwaway
+    deploy. The second call must now short-circuit and return the SAME
+    on-chain primitives, with no new SovereignAgent deployed.
+    """
+    first = registration.register_agent("idempotent-test-agent", skip_oracle_registration=True)
+    second = registration.register_agent("idempotent-test-agent", skip_oracle_registration=True)
+
+    assert second.sovereign_agent == first.sovereign_agent
+    assert second.state_anchor == first.state_anchor
+    assert second.reputation_registry == first.reputation_registry
+    assert second.slasher == first.slasher
+    assert second.verifier_registry == first.verifier_registry
+    assert second.compliance_gate == first.compliance_gate
+    assert second.agent_profile == first.agent_profile
 
 
 def test_register_agent_requires_funder_key(monkeypatch):

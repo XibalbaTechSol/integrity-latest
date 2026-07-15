@@ -103,11 +103,25 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
     oracle_signer = funder.address  # Deploy.s.sol defaults oracleSigner to the deployer.
 
     chain.fund_agent_wallet(w3, funder, agent.address, Web3.to_wei(1, "ether"), chain_id)
-    chain.mint_testnet_itk(w3, funder, addr["IntegrityToken"], agent.address, Web3.to_wei(10_000, "ether"), chain_id)
 
     did = "did:integrity:cli-test-agent"
     sovereign_agent = chain.deploy_sovereign_agent(w3, agent, did, oracle_signer, chain_id)
     state_anchor = chain.deploy_state_anchor(w3, agent, sovereign_agent, chain_id)
+
+    # Regression coverage for PRODUCTION_GAPS.md Sec3: minted to the SovereignAgent
+    # CONTRACT (only deployable once we're past the two lines above), never the raw
+    # EOA wallet -- IntegrityMarket/A2ACapitalPool pull ITK from msg.sender, which is
+    # always the SovereignAgent address when routed through its own execute(), so ITK
+    # minted to the wallet is stranded and unspendable through that path. This test
+    # used to mint to `agent.address` before the SovereignAgent even existed, matching
+    # the bug this reorder fixes, and asserted nothing about where the ITK actually
+    # landed.
+    mint_amount = Web3.to_wei(10_000, "ether")
+    chain.mint_testnet_itk(w3, funder, addr["IntegrityToken"], sovereign_agent, mint_amount, chain_id)
+    itk = chain._contract(w3, "IntegrityToken", address=addr["IntegrityToken"])
+    assert itk.functions.balanceOf(sovereign_agent).call() == mint_amount, "testnet ITK must land on the SovereignAgent contract"
+    assert itk.functions.balanceOf(agent.address).call() == 0, "the raw EOA wallet must NOT receive testnet ITK"
+
     chain.grant_anchor_role(w3, agent, sovereign_agent, state_anchor, oracle_signer, chain_id)
 
     result = chain.register_primitives(

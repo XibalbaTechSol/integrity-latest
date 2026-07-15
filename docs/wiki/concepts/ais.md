@@ -59,9 +59,13 @@ low recomputation stored and scored — see
 `integrity-oracle/backend/tests/e2e.rs`.
 
 **Still open** (see `PRODUCTION_GAPS.md` §1a for the full list): the ZK boost is a
-period-wide boolean, not bound to a specific event's claim; no oracle-to-chain score push
-exists yet, so none of this has a live economic consumer today; TEE/Tier-3 attestation
-verification is real but unwired.
+period-wide boolean, not bound to a specific event's claim; TEE/Tier-3 attestation
+verification is real but unwired. The oracle-to-chain score push that used to be missing
+here now exists — `bcc_middleware`'s `app/reputation.py`/`scoring_loop.py` periodically
+pushes each agent's recomputed AIS to `ReputationRegistry.updateScore` and raises
+`Slasher.raiseDispute` on a flagged-telemetry threshold (see `PRODUCTION_GAPS.md` §1 and
+`docs/INTERFACE_CONTRACT.md` §7a) — this AIS trust hardening now has a live economic
+consumer.
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
 ceiling clamp — is a **`[PLANNED]`** design, not implemented in

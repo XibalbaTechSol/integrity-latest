@@ -126,15 +126,22 @@ def mint_testnet_itk(
     w3: Web3, funder: LocalAccount, itk_address: str, agent_address: str, amount_wei: int, chain_id: int
 ) -> str:
     """
-    Mints `amount_wei` of $ITK directly to a freshly-registered agent's
-    wallet, so it has stake-ready collateral for `Slasher`/`SmartBAA`
-    without a separate manual step during testing. Requires `funder` to hold
-    `MINTER_ROLE` on `IntegrityToken` -- true for the deploy script's default
-    single-operator testnet setup (see contracts/script/Deploy.s.sol), NOT
-    something to rely on in a production deployment where minting should be
-    a deliberately separate, audited action, not an automatic side effect of
-    registration. Testnet-only convenience -- not part of the core
-    registration invariants documented in the interface contract.
+    Mints `amount_wei` of $ITK to `agent_address`, so the agent has
+    stake-ready collateral for `Slasher`/`SmartBAA`/market entry without a
+    separate manual step during testing. Callers MUST pass the agent's
+    SovereignAgent CONTRACT address here, not its raw EOA wallet --
+    `IntegrityMarket`/`A2ACapitalPool` pull ITK from `msg.sender`, which is
+    always the SovereignAgent address when a call is routed through its own
+    `execute()`, so ITK minted to the wallet instead is stranded and
+    unspendable through that path (see `main.py`'s `agent register` command,
+    which mints here only after `deploy_sovereign_agent` for exactly this
+    reason). Requires `funder` to hold `MINTER_ROLE` on `IntegrityToken` --
+    true for the deploy script's default single-operator testnet setup (see
+    contracts/script/Deploy.s.sol), NOT something to rely on in a production
+    deployment where minting should be a deliberately separate, audited
+    action, not an automatic side effect of registration. Testnet-only
+    convenience -- not part of the core registration invariants documented
+    in the interface contract.
     """
     itk = _contract(w3, "IntegrityToken", address=itk_address)
     tx = itk.functions.mint(Web3.to_checksum_address(agent_address), amount_wei).build_transaction(

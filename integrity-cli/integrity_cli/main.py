@@ -325,12 +325,6 @@ def agent_register(
             chain.fund_agent_wallet(w3, funder, evm_account.address, _DEFAULT_AGENT_FUND_WEI, chain_id)
         console.print("  [green]done[/green] funded agent wallet")
 
-        with console.status("[bold blue]Minting testnet ITK..."):
-            chain.mint_testnet_itk(
-                w3, funder, itk_address, evm_account.address, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
-            )
-        console.print("  [green]done[/green] minted testnet ITK")
-
         with console.status("[bold blue]Deploying SovereignAgent..."):
             sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
         console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
@@ -338,6 +332,19 @@ def agent_register(
         with console.status("[bold blue]Deploying StateAnchor..."):
             state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id)
         console.print(f"  [green]done[/green] StateAnchor deployed at [cyan]{state_anchor}[/cyan]")
+
+        # Minted to the SovereignAgent CONTRACT, not the wallet, and only after that
+        # contract exists (PRODUCTION_GAPS.md Sec3) -- IntegrityMarket/A2ACapitalPool pull
+        # ITK from msg.sender, which is always the SovereignAgent address when a call is
+        # routed through its own execute(), never the raw EOA wallet. Minting to the
+        # wallet (the previous order here) left testnet ITK stranded on an address that
+        # can never spend it through that call path. Mirrors integrity-sdk's
+        # registration.py, which was already fixed the same way.
+        with console.status("[bold blue]Minting testnet ITK..."):
+            chain.mint_testnet_itk(
+                w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
+            )
+        console.print("  [green]done[/green] minted testnet ITK")
 
         with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
             chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id)

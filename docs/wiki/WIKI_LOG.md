@@ -1730,3 +1730,8 @@
   this environment, so no automated render-check was possible; flag for a
   human/agent with mermaid preview access to spot-check if any block looks
   off.
+
+## [2026-07-15] update | UI improvements for legacy layouts and fleet management in MVP
+- **`IdentityPage`**: Redesigned to replicate the core legacy aesthetic from `integrity-dashboard`. Swapped massive glassmorphism panels for a compact, tab-based layout with a dedicated Hero Bar, an Agent Metric Strip (DID, AIS, Tier, TEE), and sub-navigation tabs mapping MVP data into `Identity & DID`, `Enclave & Security`, `Economic Capacity`, and `Credentials`. Replaced the stubbed "Launch Explorer" action with a functional, embedded `XNSSearchService` integration.
+- **`AgentsPage`**: Extracted the onboarding and control verification paths (`ClaimAgentModal`, `AgentOnboarding`) out of disconnected modals. They are now presented as prominent inline cards (`ClaimAgentCard`, `RegisterAgentCard`) above the global agents grid, heavily improving UX discoverability.
+- Updated `WIKI_INDEX.md` and `docs/wiki/entities/integrity-mvp.md` to reflect these major architectural layout adjustments, maintaining consistency between implementation and our "Wiki-as-Memory Loop".

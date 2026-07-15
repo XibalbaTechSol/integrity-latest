@@ -139,6 +139,7 @@ def register_agent(
     deployments = chain.load_deployments(deployments_file)
     factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
     itk_address = deployments["singletons"]["IntegrityToken"]
+    registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
     oracle_signer = deployments["protocolAddresses"]["oracleSigner"]
     funder_key = os.getenv("FUNDER_PRIVATE_KEY")
     if not funder_key:
@@ -153,6 +154,47 @@ def register_agent(
     agent_did, keypair, doc = did.load_or_create_did(agent_id)
     evm_account = wallet.generate_or_load_evm_wallet(agent_id)
     doc = did.attach_evm_account(doc, evm_account.address, chain_id)
+
+    # Idempotency check (PRODUCTION_GAPS.md Sec3): before spending any gas or
+    # testnet ITK, ask XibalbaAgentRegistry whether this exact DID is already
+    # fully registered. Without this, retrying after a partial failure (or
+    # simply calling register_agent twice for the same DID) always deployed a
+    # FRESH SovereignAgent/StateAnchor pair -- register_primitives would then
+    # revert AlreadyRegistered() at the very last step, after the gas/ITK for
+    # the throwaway pair was already spent, leaving it permanently orphaned
+    # (XibalbaAgentRegistry.registerPrimitives runs exactly once per DID, with
+    # no update/rotate function). Short-circuiting here instead makes a
+    # second call for the same DID a safe, cheap no-op that returns the
+    # EXISTING on-chain primitives rather than a wasted duplicate deployment.
+    existing = chain.resolve_did(w3, registry_address, agent_did)
+    if existing is not None:
+        logger.info(
+            "agent %s is already registered on-chain (SovereignAgent %s) — skipping "
+            "on-chain deployment, returning the existing registration",
+            agent_did, existing.sovereign_agent,
+        )
+        registration = AgentRegistration(
+            did=agent_did,
+            evm_address=evm_account.address,
+            sovereign_agent=existing.sovereign_agent,
+            state_anchor=existing.state_anchor,
+            reputation_registry=existing.reputation_registry,
+            slasher=existing.slasher,
+            verifier_registry=existing.verifier_registry,
+            compliance_gate=existing.compliance_gate,
+            agent_profile=existing.agent_profile,
+            domain_id=existing.domain_id,
+            oracle_registered=False,
+        )
+        doc_path = did.agent_dir(agent_id) / "document.json"
+        doc_path.write_text(json.dumps(doc, indent=2) + "\n")
+        primitives_path = did.agent_dir(agent_id) / "primitives.json"
+        primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
+
+        if not skip_oracle_registration:
+            _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=True)
+        logger.info("agent %s already registered (SovereignAgent %s) — no new on-chain work done", agent_did, registration.sovereign_agent)
+        return registration
 
     # Step 4: fund. ETH goes to the WALLET (not the SovereignAgent contract) --
     # the wallet is what pays gas for every transaction the agent signs,
@@ -244,59 +286,85 @@ def register_agent(
     primitives_path = did.agent_dir(agent_id) / "primitives.json"
     primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
 
-    # Step 11: oracle independent re-verification. Payload shape is pinned by
-    # integrity-oracle's real `RegisterAgentRequest` struct (handlers.rs) --
-    # see docs/INTERFACE_CONTRACT.md §6.3 for the documented schema. Three
-    # things this used to get wrong (found 2026-07-09 via a real 422/400
-    # against a live oracle, not a guess):
-    #   1. The DID field is named `did`, not `agent_id` -- sending `agent_id`
-    #      left the struct's required `did` field missing, which serde
-    #      rejects at the JSON-body-extraction layer (422) before the
-    #      handler even runs.
-    #   2. `primitives` must be exactly the 7-address PrimitiveSetDto shape --
-    #      built explicitly here rather than reusing `registration.to_dict()`
-    #      (which also carries `did`/`evm_address`/`domain_id`/
-    #      `oracle_registered`, fields PrimitiveSetDto doesn't have).
-    #   3. The handler requires at least one of `ed25519_pubkey_hex` /
-    #      `eth_address_hex` (400 if both are absent) so it has real
-    #      verification material to store against the DID -- both are sent
-    #      here since this SDK always has both by this point in the sequence.
+    # Step 11: oracle independent re-verification.
     if not skip_oracle_registration:
-        try:
-            resp = requests.post(
-                f"{oracle_url}/v1/agent/register",
-                json={
-                    "did": agent_did,
-                    "did_document": doc,
-                    "primitives": {
-                        "sovereign_agent": registration.sovereign_agent,
-                        "state_anchor": registration.state_anchor,
-                        "reputation_registry": registration.reputation_registry,
-                        "slasher": registration.slasher,
-                        "verifier_registry": registration.verifier_registry,
-                        "compliance_gate": registration.compliance_gate,
-                        "agent_profile": registration.agent_profile,
-                    },
-                    "ed25519_pubkey_hex": "0x" + keypair.public_bytes().hex(),
-                    "eth_address_hex": evm_account.address,
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            registration.oracle_registered = True
-        except requests.RequestException as exc:
-            # Deliberately re-raised, not swallowed: per the interface contract,
-            # an agent isn't "really" registered from the protocol's point of
-            # view until the oracle has independently re-verified it on-chain.
-            # A caller that genuinely wants the on-chain-only state (e.g. to
-            # register the oracle service itself, which can't call its own
-            # not-yet-running API) should pass skip_oracle_registration=True
-            # explicitly rather than have this fail silently.
-            raise RegistrationError(
-                f"step 11 (oracle registration) failed — the agent's 7 primitives are "
-                f"fully deployed and registered on-chain at {registration.sovereign_agent}, "
-                f"but the oracle at {oracle_url} did not accept the registration: {exc}"
-            ) from exc
+        _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=False)
 
     logger.info("registered agent %s (SovereignAgent %s)", agent_did, registration.sovereign_agent)
     return registration
+
+
+def _post_to_oracle(
+    oracle_url: str,
+    agent_did: str,
+    doc: dict,
+    registration: "AgentRegistration",
+    keypair,
+    evm_account,
+    *,
+    idempotent: bool,
+) -> None:
+    """
+    POSTs to the oracle's `/v1/agent/register`, mutating `registration.oracle_registered`
+    on success. Payload shape is pinned by integrity-oracle's real
+    `RegisterAgentRequest` struct (handlers.rs) -- see docs/INTERFACE_CONTRACT.md §6.3
+    for the documented schema. Three things this used to get wrong (found 2026-07-09 via
+    a real 422/400 against a live oracle, not a guess):
+      1. The DID field is named `did`, not `agent_id` -- sending `agent_id` left the
+         struct's required `did` field missing, which serde rejects at the
+         JSON-body-extraction layer (422) before the handler even runs.
+      2. `primitives` must be exactly the 7-address PrimitiveSetDto shape -- built
+         explicitly here rather than reusing `registration.to_dict()` (which also
+         carries `did`/`evm_address`/`domain_id`/`oracle_registered`, fields
+         PrimitiveSetDto doesn't have).
+      3. The handler requires at least one of `ed25519_pubkey_hex`/`eth_address_hex`
+         (400 if both are absent) so it has real verification material to store
+         against the DID -- both are sent here since this SDK always has both by this
+         point in the sequence.
+
+    `idempotent=True` (the on-chain-already-registered short-circuit path in
+    `register_agent`) treats a 409 (`AppError::AgentAlreadyExists` -- the oracle's own
+    Postgres unique-violation on `agents.id`) as success, not an error: the oracle
+    already knowing about this DID is exactly the expected outcome when we already know
+    it's on-chain registered, not a failure to propagate. A non-idempotent call (a fresh
+    registration) still treats any failure, 409 included, as a real error -- the
+    interface contract's stance that an agent isn't "really" registered until the
+    oracle independently re-verifies it stays true for that path.
+    """
+    try:
+        resp = requests.post(
+            f"{oracle_url}/v1/agent/register",
+            json={
+                "did": agent_did,
+                "did_document": doc,
+                "primitives": {
+                    "sovereign_agent": registration.sovereign_agent,
+                    "state_anchor": registration.state_anchor,
+                    "reputation_registry": registration.reputation_registry,
+                    "slasher": registration.slasher,
+                    "verifier_registry": registration.verifier_registry,
+                    "compliance_gate": registration.compliance_gate,
+                    "agent_profile": registration.agent_profile,
+                },
+                "ed25519_pubkey_hex": "0x" + keypair.public_bytes().hex(),
+                "eth_address_hex": evm_account.address,
+            },
+            timeout=10,
+        )
+        if idempotent and resp.status_code == 409:
+            registration.oracle_registered = True
+            return
+        resp.raise_for_status()
+        registration.oracle_registered = True
+    except requests.RequestException as exc:
+        # Deliberately re-raised, not swallowed: per the interface contract, an agent
+        # isn't "really" registered from the protocol's point of view until the oracle
+        # has independently re-verified it on-chain. A caller that genuinely wants the
+        # on-chain-only state (e.g. to register the oracle service itself, which can't
+        # call its own not-yet-running API) should pass skip_oracle_registration=True
+        # explicitly rather than have this fail silently.
+        raise RegistrationError(
+            f"step 11 (oracle registration) failed — the agent's 7 primitives are "
+            f"fully deployed and registered on-chain at {registration.sovereign_agent}, "
+            f"but the oracle at {oracle_url} did not accept the registration: {exc}"
+        ) from exc

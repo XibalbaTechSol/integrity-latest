@@ -83,6 +83,12 @@ CONTRACTS = [
     ("CoveredEntityRegistry", "CoveredEntityRegistry"),
     ("SmartBAAFactory", "SmartBAAFactory"),
     ("SmartBAA", "SmartBAA"),
+    # EHRGate: the actual PHI-access enforcement contract (ComplianceGate does NOT
+    # replace it, see EHRGate.sol's own NatSpec) — was missing from this list despite
+    # being real, deployed (Deploy.s.sol), and needed by integrity-mvp/demo's
+    # Clinician-Delta persona for grantAccess/checkAccess/verifyAndLogAccess
+    # (PRODUCTION_GAPS.md Sec3).
+    ("EHRGate", "EHRGate"),
     # XibalbaNameService (XNS, added 2026-07-11): self-service handle
     # registration/resolution — see contracts/src/framework/
     # XibalbaNameService.sol's NatSpec. Needed by both packages' new `xns`

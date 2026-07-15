@@ -5,9 +5,10 @@ The unified React/Vite/TS dashboard for the Integrity Protocol. It serves as the
 ## Core Features
 
 - **Global Fleet Dashboard:** Displays a customizable grid layout of widgets rendering network security scores, throughput, and global pre-execution policy gating latency.
+- **Agent Fleet Management:** Dedicated inline workflows for registering new sovereign agents or verifying control of existing agents on-chain.
 - **Agent Intelligence & Chain of Thought:** Connects to the Integrity Oracle to stream live OpenTelemetry (OTLP) spans and structural graphs of agent logic in real-time.
 - **Finance & Exchange:** Manage decentralized capital, stake tokens to Agent SmartBAAs, and review on-chain interactions securely gated by the BCC Middleware.
-- **Identity & Compliance:** Complete sovereign agent identity verification, visualize zero-knowledge attestation records, and ensure TEE environments remain untampered.
+- **Identity & Compliance:** Complete sovereign agent identity verification, utilizing a legacy-dashboard tabbed interface to visualize zero-knowledge attestation records and ensure TEE environments remain untampered.
 
 ## Architecture
 

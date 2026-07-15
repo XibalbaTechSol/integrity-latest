@@ -97,6 +97,33 @@ contract CCIPReputationBridgeTest is Test {
         bridge.bridgeReputation(REMOTE_SELECTOR, agent, address(0));
     }
 
+    /// @notice Regression test: `bridgeReputation` used to forward only `fee` to the
+    /// router but never refund `msg.value - fee`, permanently trapping any overpayment
+    /// (a normal, expected pattern for CCIP callers padding against `getFee()` drift
+    /// between quote and send) with no receive()/withdraw()/sweep function anywhere in
+    /// the contract to recover it. The excess must now come back to the caller.
+    function test_bridgeReputation_refundsExcessNativeFee() public {
+        vm.prank(agent);
+        registry.updateScore(agent, 800);
+
+        vm.prank(admin);
+        bridge.setTrustedBridge(REMOTE_SELECTOR, remotePeerBridge);
+
+        vm.mockCall(mockRouter, abi.encodeWithSelector(IRouterClient.getFee.selector), abi.encode(uint256(0.01 ether)));
+        vm.mockCall(mockRouter, abi.encodeWithSelector(IRouterClient.ccipSend.selector), abi.encode(bytes32("msg-1")));
+
+        address caller = makeAddr("overpayingCaller");
+        vm.deal(caller, 1 ether);
+
+        vm.prank(caller);
+        bridge.bridgeReputation{value: 0.05 ether}(REMOTE_SELECTOR, agent, address(0));
+
+        // Sent 0.05, fee is 0.01 -- the 0.04 excess must come back, and the contract
+        // must not be left holding it either.
+        assertEq(caller.balance, 1 ether - 0.01 ether, "excess must be refunded to the caller");
+        assertEq(address(bridge).balance, 0, "no fee overpayment should be left stranded in the contract");
+    }
+
     function test_ccipReceive_updatesRegistryFromTrustedSender() public {
         vm.prank(admin);
         bridge.setTrustedBridge(REMOTE_SELECTOR, remotePeerBridge);

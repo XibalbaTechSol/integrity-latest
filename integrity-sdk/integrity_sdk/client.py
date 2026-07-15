@@ -64,9 +64,14 @@ class IntegrityClient:
         self._auto_flush = auto_flush
         # Monotonic per-flush nonce, so the oracle's replay protection (see
         # db.rs's insert_telemetry_event nonce check) has a strictly-increasing
-        # value per agent. Starts at a wall-clock-independent 0 and only ever
-        # increments — the oracle rejects any nonce <= the last one it saw.
+        # value per agent. Starts at 0 and is re-synced from the oracle's
+        # persisted last_nonce before the first real flush (see
+        # `_sync_nonce_from_oracle`) — a fresh client instance after a process
+        # restart otherwise has no way to know an earlier instance already
+        # advanced the oracle's counter, and would replay a stale nonce on
+        # every flush forever (PRODUCTION_GAPS.md Sec3).
         self._nonce = 0
+        self._nonce_synced = False
         # Escape-hatch metric recording (telemetry/metrics.py) — was fully
         # built but never actually wired into this client (see flush_telemetry's
         # docstring on where its drained output now goes). Fixed here rather
@@ -175,6 +180,30 @@ class IntegrityClient:
             client=self,
         )
 
+    def _sync_nonce_from_oracle(self) -> None:
+        """
+        Best-effort: reads this agent's persisted `last_nonce` from
+        `GET /v1/agent/{id}` (the same field `db::insert_telemetry_event`'s
+        replay check compares against) and adopts it as this client's
+        starting point, so a freshly-constructed client (e.g. after a process
+        restart) doesn't replay a nonce an earlier instance already used. A
+        failure here (oracle unreachable, agent not yet registered) is logged
+        and swallowed, not raised — `self._nonce` simply stays at whatever it
+        already was, matching this module's overall best-effort posture for
+        telemetry (see module docstring). Always marks `_nonce_synced = True`
+        regardless of outcome, so a persistently-unreachable oracle doesn't
+        make every single flush pay a redundant GET.
+        """
+        self._nonce_synced = True
+        try:
+            resp = requests.get(f"{self.oracle_url}/v1/agent/{self.agent_id}", timeout=10)
+            resp.raise_for_status()
+            last_nonce = resp.json().get("last_nonce")
+            if isinstance(last_nonce, int) and last_nonce > self._nonce:
+                self._nonce = last_nonce
+        except requests.RequestException as exc:
+            logger.warning("could not sync starting nonce from oracle for agent %s: %s", self.agent_id, exc)
+
     def flush_telemetry(
         self,
         *,
@@ -247,6 +276,9 @@ class IntegrityClient:
         if not batch and not trace_runs and not custom_metrics:
             return True  # nothing to flush is a success, not a failure
 
+        if not self._nonce_synced:
+            self._sync_nonce_from_oracle()
+
         self._nonce += 1
         derived = derive.derive_ais_signals(
             batch,
@@ -288,6 +320,21 @@ class IntegrityClient:
             # payload.)
             for entry in batch:
                 self._batcher.add_telemetry(entry)
-            self._nonce -= 1  # roll back so the retry reuses this nonce
-            logger.warning("telemetry flush to %s failed, re-queued %d entries: %s", self.oracle_url, len(batch), exc)
+
+            if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 409:
+                # A 409 PROVES this nonce was already consumed by the oracle —
+                # rolling back to reuse it (the old behavior) would just repeat
+                # the same 409 forever (PRODUCTION_GAPS.md Sec3: this is exactly
+                # how a fresh client instance got permanently stuck after a
+                # restart). Re-sync the real last_nonce instead, so the retry
+                # this method's caller triggers next actually advances past it.
+                logger.warning(
+                    "telemetry flush to %s got 409 (nonce %d already used) — re-syncing last_nonce from oracle, re-queued %d entries",
+                    self.oracle_url, self._nonce, len(batch),
+                )
+                self._nonce_synced = False
+                self._sync_nonce_from_oracle()
+            else:
+                self._nonce -= 1  # roll back so the retry reuses this nonce
+                logger.warning("telemetry flush to %s failed, re-queued %d entries: %s", self.oracle_url, len(batch), exc)
             return False

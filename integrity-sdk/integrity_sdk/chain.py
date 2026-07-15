@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import Optional
 
 from eth_account.signers.local import LocalAccount
+from eth_utils import keccak
 from web3 import Web3
 from web3.contract import Contract
+from web3.exceptions import ContractCustomError
 
 _ABIS_DIR = Path(__file__).resolve().parent / "abis"
 
@@ -263,6 +265,58 @@ class PrimitivesRegistered:
     compliance_gate: str
     agent_profile: str
     domain_id: str
+
+
+_UNKNOWN_DID_SELECTOR = "0x" + keccak(text="UnknownDID()")[:4].hex()
+
+
+def resolve_did(w3: Web3, registry_address: str, did: str) -> Optional[PrimitivesRegistered]:
+    """
+    Reads `XibalbaAgentRegistry.resolveDID(did)`. Unlike `isRegisteredAgent`
+    (a plain bool getter), `resolveDID` genuinely REVERTS with the custom
+    error `UnknownDID()` for a DID that was never registered -- confirmed by
+    reading the contract source directly (`XibalbaAgentRegistry.sol`:
+    `if (!record.exists) revert UnknownDID();`), not assumed from the ABI
+    alone (the ABI's `view` mutability says nothing about whether the
+    function can revert). Returns `None` for that case rather than letting
+    the revert propagate; returns the full 7-primitive set (plus
+    controller/domain) if the DID is already registered. Any OTHER revert
+    (unexpected selector, RPC error) is re-raised, not swallowed.
+
+    Exists so `registration.register_agent` can check BEFORE doing any
+    work whether this DID already has a real on-chain registration, and
+    short-circuit instead of deploying a second, orphaned
+    SovereignAgent/StateAnchor pair that `registerPrimitives` would just
+    revert `AlreadyRegistered()` on anyway at the very last step -- after
+    already spending gas and testnet ITK on the throwaway pair. See
+    `registration.py`'s module docstring for the idempotency contract this
+    enables.
+    """
+    registry = _contract(w3, "XibalbaAgentRegistry", address=registry_address)
+    try:
+        record = registry.functions.resolveDID(did).call()
+    except ContractCustomError as exc:
+        selector = exc.args[0] if exc.args else None
+        if selector == _UNKNOWN_DID_SELECTOR:
+            return None
+        raise
+    # ABI-decoded tuple shape: (primitives_tuple, controller, domainId, registeredAt, exists)
+    primitives, controller, domain_id, _registered_at, exists = record
+    if not exists:
+        return None
+    sovereign_agent, state_anchor, reputation_registry, slasher, verifier_registry, compliance_gate, agent_profile = primitives
+    return PrimitivesRegistered(
+        did_hash=registry.functions.didHash(did).call().hex(),
+        sovereign_agent=sovereign_agent,
+        controller=controller,
+        state_anchor=state_anchor,
+        reputation_registry=reputation_registry,
+        slasher=slasher,
+        verifier_registry=verifier_registry,
+        compliance_gate=compliance_gate,
+        agent_profile=agent_profile,
+        domain_id=domain_id.hex(),
+    )
 
 
 def register_primitives(

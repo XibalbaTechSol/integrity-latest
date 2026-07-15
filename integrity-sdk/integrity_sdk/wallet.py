@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -49,6 +50,22 @@ class WalletPasswordNotSet(RuntimeError):
     wallet controls real (even if testnet) value, and a convenience default
     here would be exactly the kind of silent security downgrade did.py's own
     docstring warns against for the DID key."""
+
+
+class CorruptedKeystoreError(RuntimeError):
+    """Raised when a keystore.json file exists but isn't valid JSON (a
+    truncated/torn write from a prior crash, disk corruption, etc). Wraps
+    the raw json.JSONDecodeError with the keystore path so a caller/log
+    doesn't have to guess which file was the problem — PRODUCTION_GAPS.md
+    Sec3: this used to raise the bare JSONDecodeError, which reads as an
+    unrelated bug rather than "this specific file is broken"."""
+
+
+class WalletDecryptionError(RuntimeError):
+    """Raised when a keystore.json exists and parses fine, but the supplied
+    INTEGRITY_WALLET_PASSWORD doesn't decrypt it. Wraps eth_account's raw
+    ValueError (a generic "MAC mismatch"-style message) with a clearer,
+    keystore-specific error — PRODUCTION_GAPS.md Sec3."""
 
 
 def _default_wallet_home() -> Path:
@@ -77,6 +94,24 @@ def _wallet_password() -> str:
     return password
 
 
+def _load_keystore(keystore_path: Path, password: str) -> LocalAccount:
+    try:
+        keystore_json = json.loads(keystore_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise CorruptedKeystoreError(
+            f"keystore at {keystore_path} is not valid JSON (truncated write? disk "
+            f"corruption?) — cannot recover the private key from this file: {exc}"
+        ) from exc
+    try:
+        private_key = Account.decrypt(keystore_json, password)
+    except ValueError as exc:
+        raise WalletDecryptionError(
+            f"could not decrypt keystore at {keystore_path} with the supplied "
+            f"INTEGRITY_WALLET_PASSWORD — wrong password, or the file is corrupted: {exc}"
+        ) from exc
+    return Account.from_key(private_key)
+
+
 def generate_or_load_evm_wallet(agent_id: Optional[str] = None) -> LocalAccount:
     """
     Load the persisted EVM keypair for `agent_id`, or generate a fresh
@@ -85,6 +120,20 @@ def generate_or_load_evm_wallet(agent_id: Optional[str] = None) -> LocalAccount:
     Returns an `eth_account.signers.local.LocalAccount` — has `.address` and
     `.key` (raw private key bytes) and can sign transactions/messages
     directly, or be handed to `chain.py`'s deploy/registration functions.
+
+    Creation is atomic against two concurrent callers for the same
+    `agent_id` (PRODUCTION_GAPS.md Sec3): the old `.exists()` check then
+    `write_text()` was a check-then-act race where two callers racing to
+    bootstrap the same identity could each generate a DIFFERENT keypair,
+    with whichever wrote last silently winning — the loser then keeps
+    signing with an in-memory account whose key the persisted file no
+    longer contains, permanently locking it out of anything (like a
+    SovereignAgent) it already deployed. Fixed by writing the new keystore
+    to a per-call temp file first, then claiming the final path with
+    `os.link` (fails atomically with `FileExistsError` if another caller
+    already claimed it first, unlike `os.rename`, which would silently
+    overwrite) — the loser discards its own generated keypair and loads the
+    winner's instead, so every caller ends up agreeing on the same account.
     """
     this_wallet_dir = wallet_dir(agent_id)
     this_wallet_dir.mkdir(parents=True, exist_ok=True)
@@ -93,15 +142,39 @@ def generate_or_load_evm_wallet(agent_id: Optional[str] = None) -> LocalAccount:
     password = _wallet_password()
 
     if keystore_path.exists():
-        keystore_json = json.loads(keystore_path.read_text())
-        private_key = Account.decrypt(keystore_json, password)
-        return Account.from_key(private_key)
+        return _load_keystore(keystore_path, password)
 
     account: LocalAccount = Account.create()
     keystore_json = Account.encrypt(account.key, password)
-    keystore_path.write_text(json.dumps(keystore_json, indent=2) + "\n")
+
+    tmp_path = this_wallet_dir / f".keystore.json.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+    try:
+        fd = os.open(str(tmp_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(keystore_json, indent=2) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        try:
+            os.link(str(tmp_path), str(keystore_path))
+        except FileExistsError:
+            # Another caller won the race and already created a (possibly
+            # different) keypair between our .exists() check and this claim
+            # -- load THEIRS rather than silently returning a keypair no
+            # persisted file will ever agree with again.
+            return _load_keystore(keystore_path, password)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
     # Keystore JSON is password-encrypted, but owner-only permissions are
     # still the right default posture — same reasoning as did.py's PEM file.
+    # (Already created 0o600 via os.open above; chmod again defensively in
+    # case umask altered it — cheap, and keeps this invariant explicit here
+    # rather than only implicit in the os.open flags.)
     os.chmod(str(keystore_path), stat.S_IRUSR | stat.S_IWUSR)
 
     return account
@@ -119,7 +192,12 @@ def load_evm_address(agent_id: Optional[str] = None) -> Optional[str]:
     keystore_path = wallet_dir(agent_id) / "keystore.json"
     if not keystore_path.exists():
         return None
-    keystore_json = json.loads(keystore_path.read_text())
+    try:
+        keystore_json = json.loads(keystore_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise CorruptedKeystoreError(
+            f"keystore at {keystore_path} is not valid JSON (truncated write? disk corruption?): {exc}"
+        ) from exc
     raw_address = keystore_json.get("address")
     if not raw_address:
         return None
