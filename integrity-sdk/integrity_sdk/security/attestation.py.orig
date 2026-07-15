@@ -65,7 +65,7 @@ _TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pe
 # for something else by mistake, `_load_trusted_root` fails loudly instead
 # of silently trusting whatever is on disk.
 _EXPECTED_ROOT_FINGERPRINT_SHA256 = (
-    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5b"
+    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5"
 )
 
 # COSE algorithm identifier for ECDSA w/ SHA-384 over P-384 (RFC 8152 §8.1).
@@ -200,7 +200,7 @@ def verify_nitro_attestation(
 
     if not isinstance(cose_array, list) or len(cose_array) != 4:
         raise AttestationError(
-            f"not valid CBOR|CBOR, got {type(cose_array)} "
+            f"Expected a 4-element COSE_Sign1 array, got {type(cose_array)} "
             f"with {len(cose_array) if isinstance(cose_array, list) else '?'} elements"
         )
     protected_bstr, unprotected, payload_bstr, signature = cose_array
