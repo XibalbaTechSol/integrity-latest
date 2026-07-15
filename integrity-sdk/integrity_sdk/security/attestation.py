@@ -65,7 +65,7 @@ _TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pe
 # for something else by mistake, `_load_trusted_root` fails loudly instead
 # of silently trusting whatever is on disk.
 _EXPECTED_ROOT_FINGERPRINT_SHA256 = (
-    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5"
+    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5b"
 )
 
 # COSE algorithm identifier for ECDSA w/ SHA-384 over P-384 (RFC 8152 §8.1).
@@ -248,9 +248,13 @@ def verify_nitro_attestation(
         issuer, subject = full_chain[i], full_chain[i + 1]
         if not _verify_cert_signed_by(subject, issuer):
             chain_valid = False
+            try:
+                subj_str = subject.subject.rfc4514_string()
+            except Exception:
+                subj_str = "<invalid subject>"
             errors.append(
                 f"Chain signature invalid: cert[{i + 1}] "
-                f"({subject.subject.rfc4514_string()}) not signed by cert[{i}]"
+                f"({subj_str}) not signed by cert[{i}]"
             )
 
     # 3. COSE signature over the payload, checked against the LEAF cert's key
