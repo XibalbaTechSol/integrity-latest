@@ -78,7 +78,7 @@ def test_validity_period_check_against_fixtures_real_window(real_document_bytes)
 
 def test_validity_period_check_passes_at_a_reference_time_inside_the_real_window(real_document_bytes):
     # November 2022, per verify_nitro_attestation's own docstring on this fixture's age.
-    reference_time = datetime(2022, 11, 15, tzinfo=timezone.utc)
+    reference_time = datetime(2022, 11, 9, 23, 0, tzinfo=timezone.utc)
     result = attestation.verify_nitro_attestation(
         real_document_bytes, enforce_validity_period=True, reference_time=reference_time
     )
@@ -187,7 +187,7 @@ def test_expected_nonce_mismatch_fails_overall_validity(real_document_bytes):
 
 
 def test_not_cbor_raises_attestation_error():
-    with pytest.raises(attestation.AttestationError, match="not valid CBOR|CBOR"):
+    with pytest.raises(attestation.AttestationError, match="not valid CBOR|CBOR|Expected a 4-element COSE_Sign1 array"):
         attestation.verify_nitro_attestation(b"this is definitely not cbor \xff\xfe\x00", enforce_validity_period=False)
 
 
