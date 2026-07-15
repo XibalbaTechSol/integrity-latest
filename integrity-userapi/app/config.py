@@ -59,5 +59,8 @@ class Settings(BaseSettings):
     # --- App ---
     app_name: str = "integrity-userapi"
 
+    # --- CORS ---
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5190"]
+
 
 settings = Settings()
