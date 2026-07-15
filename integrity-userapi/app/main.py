@@ -11,6 +11,7 @@ stores only a DID pointer, never a cache of full agent state.
 
 from __future__ import annotations
 
+import asyncio
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,7 +31,12 @@ from app.schemas import (
     TokenResponse,
     UserResponse,
 )
-from app.security import create_access_token, generate_api_key, hash_password, verify_password
+from app.security import (
+    create_access_token,
+    generate_api_key,
+    hash_password,
+    verify_password,
+)
 
 app = FastAPI(title="integrity-userapi", version="0.1.0")
 
@@ -80,7 +86,9 @@ async def health() -> dict:
 # --- Auth -------------------------------------------------------------------
 
 
-@app.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+)
 async def register(
     body: RegisterRequest,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -88,7 +96,9 @@ async def register(
 ) -> TokenResponse:
     existing = await pool.fetchrow("SELECT id FROM users WHERE email = $1", body.email)
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="email already registered"
+        )
 
     hashed = hash_password(body.password)
     row = await pool.fetchrow(
@@ -110,7 +120,9 @@ async def login(
         "SELECT id, hashed_password FROM users WHERE email = $1", body.email
     )
     if row is None or not verify_password(body.password, row["hashed_password"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password"
+        )
 
     token = create_access_token(user_id=str(row["id"]), settings=settings)
     return TokenResponse(access_token=token)
@@ -125,14 +137,20 @@ async def me(
         "SELECT id, email, created_at FROM users WHERE id = $1", UUID(user_id)
     )
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
+        )
     return UserResponse(**dict(row))
 
 
 # --- API keys -----------------------------------------------------------------
 
 
-@app.post("/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api-keys",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_api_key(
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),
@@ -188,7 +206,9 @@ async def revoke_api_key(
     )
     # asyncpg's execute() returns a tag string like "UPDATE 0" / "UPDATE 1".
     if result == "UPDATE 0":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
+        )
 
 
 # --- Agent ownership ----------------------------------------------------------
@@ -204,9 +224,12 @@ async def list_my_agents(
         "SELECT agent_did, added_at FROM user_agents WHERE user_id = $1 ORDER BY added_at DESC",
         UUID(user_id),
     )
+    lookups = await asyncio.gather(
+        *(oracle_client.fetch_agent(row["agent_did"], settings) for row in rows)
+    )
+
     results: list[OwnedAgentResponse] = []
-    for row in rows:
-        lookup = await oracle_client.fetch_agent(row["agent_did"], settings)
+    for row, lookup in zip(rows, lookups):
         results.append(
             OwnedAgentResponse(
                 agent_did=row["agent_did"],
@@ -218,7 +241,9 @@ async def list_my_agents(
     return results
 
 
-@app.post("/me/agents", response_model=OwnedAgentResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/me/agents", response_model=OwnedAgentResponse, status_code=status.HTTP_201_CREATED
+)
 async def add_my_agent(
     body: AddAgentRequest,
     user_id: str = Depends(get_current_user_id),
@@ -246,7 +271,9 @@ async def add_my_agent(
 # --- Demo runs ------------------------------------------------------------------
 
 
-@app.post("/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED
+)
 async def start_demo_run(
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),
