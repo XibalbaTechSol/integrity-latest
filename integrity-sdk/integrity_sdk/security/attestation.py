@@ -65,7 +65,7 @@ _TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pe
 # for something else by mistake, `_load_trusted_root` fails loudly instead
 # of silently trusting whatever is on disk.
 _EXPECTED_ROOT_FINGERPRINT_SHA256 = (
-    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5"
+    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5b"
 )
 
 # COSE algorithm identifier for ECDSA w/ SHA-384 over P-384 (RFC 8152 §8.1).
