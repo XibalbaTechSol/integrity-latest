@@ -30,23 +30,22 @@ from app.schemas import (
     TokenResponse,
     UserResponse,
 )
-from app.security import create_access_token, generate_api_key, hash_password, verify_password
+from app.security import (
+    create_access_token,
+    generate_api_key,
+    hash_password,
+    verify_password,
+)
 
 app = FastAPI(title="integrity-userapi", version="0.1.0")
 
 # integrity-mvp (the browser dashboard, task #21) is a cross-origin caller by
 # construction -- it's served by Vite on its own port (5173 dev / 5190 e2e),
-# never the same origin as this API. Every request that matters here carries
-# a `Authorization: Bearer <jwt>` header, never a cookie, so wildcarding the
-# origin is safe (allow_credentials must stay False -- combining it with a
-# wildcard origin is invalid per the CORS spec and browsers reject it).
-# Real, necessary addition found while wiring the dashboard's auth swap to
-# this service (docs/INTERFACE_CONTRACT.md §13); this package had no CORS
-# policy at all before, which is a hard 100% failure for any browser caller,
-# not a partial gap.
+# never the same origin as this API. To ensure security, CORS origins are explicitly
+# restricted to trusted frontend domains instead of using a wildcard '*'.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=default_settings.cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,7 +79,9 @@ async def health() -> dict:
 # --- Auth -------------------------------------------------------------------
 
 
-@app.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED
+)
 async def register(
     body: RegisterRequest,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -88,7 +89,9 @@ async def register(
 ) -> TokenResponse:
     existing = await pool.fetchrow("SELECT id FROM users WHERE email = $1", body.email)
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="email already registered")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="email already registered"
+        )
 
     hashed = hash_password(body.password)
     row = await pool.fetchrow(
@@ -110,7 +113,9 @@ async def login(
         "SELECT id, hashed_password FROM users WHERE email = $1", body.email
     )
     if row is None or not verify_password(body.password, row["hashed_password"]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password"
+        )
 
     token = create_access_token(user_id=str(row["id"]), settings=settings)
     return TokenResponse(access_token=token)
@@ -125,14 +130,20 @@ async def me(
         "SELECT id, email, created_at FROM users WHERE id = $1", UUID(user_id)
     )
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="user not found"
+        )
     return UserResponse(**dict(row))
 
 
 # --- API keys -----------------------------------------------------------------
 
 
-@app.post("/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api-keys",
+    response_model=ApiKeyCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_api_key(
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),
@@ -188,7 +199,9 @@ async def revoke_api_key(
     )
     # asyncpg's execute() returns a tag string like "UPDATE 0" / "UPDATE 1".
     if result == "UPDATE 0":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api key not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="api key not found"
+        )
 
 
 # --- Agent ownership ----------------------------------------------------------
@@ -218,7 +231,9 @@ async def list_my_agents(
     return results
 
 
-@app.post("/me/agents", response_model=OwnedAgentResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/me/agents", response_model=OwnedAgentResponse, status_code=status.HTTP_201_CREATED
+)
 async def add_my_agent(
     body: AddAgentRequest,
     user_id: str = Depends(get_current_user_id),
@@ -246,7 +261,9 @@ async def add_my_agent(
 # --- Demo runs ------------------------------------------------------------------
 
 
-@app.post("/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED
+)
 async def start_demo_run(
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),

@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # --- Postgres (user data only -- accounts, api keys, ownership pointers, demo runs) ---
-    database_url: str = "postgresql://integrity:integrity_dev_only@localhost:5432/integrity_userapi"
+    database_url: str = (
+        "postgresql://integrity:integrity_dev_only@localhost:5432/integrity_userapi"
+    )
 
     # --- integrity-oracle, called over HTTP only -- never a direct chain RPC/web3 dep here ---
     oracle_url: str = "http://localhost:8080"
@@ -40,6 +42,9 @@ class Settings(BaseSettings):
 
     # --- App ---
     app_name: str = "integrity-userapi"
+
+    # --- CORS ---
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5190"]
 
 
 settings = Settings()
