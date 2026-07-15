@@ -132,4 +132,56 @@ contract SmartBAATest is Test {
         factory.createBAA(aiAgent, keccak256("doc"), COLLATERAL);
         assertFalse(factory.isBAAActive(hospital, aiAgent));
     }
+
+    /// @notice Regression test: `createBAA` used to permanently block re-forming a BAA
+    /// for the same (hospital, agent) pair after ANY termination — `baaOf` was set once
+    /// and never cleared, so `BAAAlreadyExists` reverted forever even once the prior
+    /// agreement had legitimately ended via `revoke()`. BAAs are routinely renewed in
+    /// practice, so this must succeed.
+    function test_canReformBAAAfterRevoke() public {
+        SmartBAA first = _createAndSignBAA();
+        vm.prank(hospital);
+        first.revoke();
+        assertEq(uint8(first.status()), uint8(SmartBAA.Status.Terminated));
+
+        vm.prank(hospital);
+        address secondAddr = factory.createBAA(aiAgent, keccak256("renewed-doc"), COLLATERAL);
+        assertTrue(secondAddr != address(first), "re-formation must deploy a fresh escrow, not reuse the terminated one");
+        assertEq(factory.baaOf(hospital, aiAgent), secondAddr, "the pair must now point at the new BAA");
+
+        vm.startPrank(aiAgent);
+        itk.approve(secondAddr, COLLATERAL);
+        SmartBAA(secondAddr).sign();
+        vm.stopPrank();
+        assertTrue(factory.isBAAActive(hospital, aiAgent), "the renewed BAA must be usable exactly like a fresh one");
+    }
+
+    /// @notice Same re-formation path, but reaching Terminated via a slashing arbitration
+    /// rather than a mutual revoke — both termination routes must equally unblock reformation.
+    function test_canReformBAAAfterSlash() public {
+        SmartBAA first = _createAndSignBAA();
+        vm.prank(hospital);
+        first.raiseDispute();
+        vm.prank(arbitrator);
+        first.arbitrate(true);
+        assertEq(uint8(first.status()), uint8(SmartBAA.Status.Terminated));
+
+        vm.prank(hospital);
+        address secondAddr = factory.createBAA(aiAgent, keccak256("post-slash-doc"), COLLATERAL);
+        assertTrue(secondAddr != address(first));
+        assertEq(factory.baaOf(hospital, aiAgent), secondAddr);
+    }
+
+    /// @notice The other side of the fix: re-formation must stay blocked while the
+    /// existing agreement is genuinely still in force (Disputed, not yet resolved) —
+    /// only `Terminated` unblocks it.
+    function test_cannotReformBAAWhileDisputed() public {
+        SmartBAA baa = _createAndSignBAA();
+        vm.prank(hospital);
+        baa.raiseDispute();
+
+        vm.prank(hospital);
+        vm.expectRevert(SmartBAAFactory.BAAAlreadyExists.selector);
+        factory.createBAA(aiAgent, keccak256("another-doc"), COLLATERAL);
+    }
 }

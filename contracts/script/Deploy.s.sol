@@ -12,6 +12,7 @@ import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
 import {CoveredEntityRegistry} from "../src/shield/CoveredEntityRegistry.sol";
 import {SmartBAAFactory} from "../src/shield/SmartBAAFactory.sol";
 import {HIPAAGuardrailRegistry} from "../src/shield/HIPAAGuardrailRegistry.sol";
+import {EHRGate} from "../src/shield/EHRGate.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {Slasher} from "../src/oracle/Slasher.sol";
 import {VerifierRegistry} from "../src/oracle/VerifierRegistry.sol";
@@ -34,6 +35,12 @@ import {A2ACapitalPool} from "../src/markets/A2ACapitalPool.sol";
 /// protocol infrastructure an agent's own wallet later self-registers against (see
 /// integrity-sdk's registration.py for that sequence).
 contract Deploy is Script {
+    // Minimum effective AIS (post ZK-boost) required to access PHI via EHRGate —
+    // mirrors the README's verification-ladder "700+ institutional credit / 850+
+    // TEE-bound institutional trust" framing and test/shield/EHRGate.t.sol's own
+    // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
+    uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
+
     // Deployed/derived addresses, held as contract-level state purely so
     // `_writeDeploymentsFile` can read them after `run()`'s local variables are gone.
     address deployer;
@@ -51,6 +58,7 @@ contract Deploy is Script {
     CoveredEntityRegistry entityRegistry;
     SmartBAAFactory baaFactory;
     HIPAAGuardrailRegistry guardrailRegistry;
+    EHRGate ehrGate;
 
     ReputationRegistry reputationRegistryImpl;
     Slasher slasherImpl;
@@ -120,6 +128,11 @@ contract Deploy is Script {
         entityRegistry = new CoveredEntityRegistry(deployer);
         baaFactory = new SmartBAAFactory(address(entityRegistry), address(itk), arbitrator, deployer);
         guardrailRegistry = new HIPAAGuardrailRegistry(deployer, oracleSigner);
+        // Was previously deployed nowhere (PRODUCTION_GAPS.md §4) despite being the
+        // actual PHI-access enforcement contract ComplianceGate's own NatSpec says it
+        // does NOT replace — the three-way consent+BAA+AIS gate the Shield vertical's
+        // docs describe had no reachable contract to call on-chain until this line.
+        ehrGate = new EHRGate(address(registry), address(baaFactory), EHR_GATE_MIN_AIS_THRESHOLD, deployer);
     }
 
     /// @dev Each clone-implementation contract's own constructor calls
@@ -199,6 +212,7 @@ contract Deploy is Script {
         console2.log("CoveredEntityRegistry: ", address(entityRegistry));
         console2.log("SmartBAAFactory:       ", address(baaFactory));
         console2.log("HIPAAGuardrailRegistry:", address(guardrailRegistry));
+        console2.log("EHRGate:               ", address(ehrGate));
         console2.log("ReputationRegistryImpl:", address(reputationRegistryImpl));
         console2.log("SlasherImpl:           ", address(slasherImpl));
         console2.log("VerifierRegistryImpl:  ", address(verifierRegistryImpl));
@@ -225,6 +239,7 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "CoveredEntityRegistry", address(entityRegistry));
         vm.serializeAddress(singletons, "SmartBAAFactory", address(baaFactory));
         vm.serializeAddress(singletons, "HIPAAGuardrailRegistry", address(guardrailRegistry));
+        vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
         vm.serializeAddress(singletons, "MarketFactory", address(marketFactory));
         string memory singletonsJson = vm.serializeAddress(singletons, "A2ACapitalPool", address(capitalPool));
 

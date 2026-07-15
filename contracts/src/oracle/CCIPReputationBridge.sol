@@ -8,6 +8,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ReputationRegistry} from "./ReputationRegistry.sol";
 import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
 
@@ -51,7 +52,7 @@ import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
 /// bridge deployed on a real second chain to be meaningful, which is an operational
 /// decision (which second chain, real CCIP lane fees) beyond this rework's scope, not
 /// a remaining code gap.
-contract CCIPReputationBridge is CCIPReceiver, AccessControl {
+contract CCIPReputationBridge is CCIPReceiver, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IRouterClient public immutable router;
@@ -69,6 +70,7 @@ contract CCIPReputationBridge is CCIPReceiver, AccessControl {
     error DestinationBridgeNotConfigured();
     error UntrustedSender();
     error InsufficientFee();
+    error RefundFailed();
 
     constructor(address _router, address _agentRegistry, address admin) CCIPReceiver(_router) {
         router = IRouterClient(_router);
@@ -105,9 +107,13 @@ contract CCIPReputationBridge is CCIPReceiver, AccessControl {
     /// @notice Sends `agent`'s current base AIS to the peer bridge on `destinationChainSelector`.
     /// @param feeToken address(0) to pay the CCIP fee in native gas token, or an ERC20
     /// fee token (e.g. LINK) address to pay in that token.
+    /// @dev `nonReentrant`: the native-fee refund below is a raw `.call` to an
+    /// arbitrary `msg.sender`, which (unlike the trusted, fixed-address CCIP router
+    /// call above it) is attacker-controlled and can run arbitrary code on receipt.
     function bridgeReputation(uint64 destinationChainSelector, address agent, address feeToken)
         external
         payable
+        nonReentrant
         returns (bytes32 messageId)
     {
         address destinationBridge = trustedBridges[destinationChainSelector];
@@ -129,6 +135,17 @@ contract CCIPReputationBridge is CCIPReceiver, AccessControl {
         if (feeToken == address(0)) {
             if (msg.value < fee) revert InsufficientFee();
             messageId = router.ccipSend{value: fee}(destinationChainSelector, message);
+
+            // Refund any excess native fee -- callers must pad msg.value against
+            // getFee() drift between quote and send (a normal, expected pattern for
+            // CCIP callers), and without this the excess was previously trapped here
+            // permanently: no receive()/withdraw()/sweep function existed anywhere in
+            // this contract to recover it.
+            uint256 excess = msg.value - fee;
+            if (excess > 0) {
+                (bool sent,) = msg.sender.call{value: excess}("");
+                if (!sent) revert RefundFailed();
+            }
         } else {
             IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
             IERC20(feeToken).forceApprove(address(router), fee);

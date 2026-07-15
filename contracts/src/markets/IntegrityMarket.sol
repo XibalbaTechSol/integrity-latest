@@ -175,16 +175,33 @@ contract IntegrityMarket is Initializable, AccessControlUpgradeable, ReentrancyG
     /// @notice Pari-mutuel payout: a winner receives its share of the ENTIRE staked
     /// pool (all outcomes combined) proportional to its share of the winning outcome's
     /// pool. Losers receive nothing (their stake funds the winners' payout).
+    ///
+    /// @dev Handles the "push" case -- `resolve()` reporting the true outcome, but zero
+    /// positions were actually staked on it (entirely possible in any N-outcome market;
+    /// an honest resolver must still be able to report the real answer even when nobody
+    /// guessed it). Without this, every position holder would permanently hit
+    /// `LosingPosition` (none of them hold the winning outcome by definition) and
+    /// `totalStaked` would sit in this contract unclaimable by anyone, forever. When
+    /// `winningPool == 0`, every position holder is refunded exactly their own original
+    /// stake instead of a pari-mutuel share -- this drains the pool completely (the sum
+    /// of every position's `amount` equals `totalStaked` by construction in
+    /// `enterPosition`) with no shortfall or leftover.
     function claimPayout() external nonReentrant {
         if (!resolved) revert MarketNotResolved();
         Position storage p = positions[msg.sender];
         if (p.amount == 0) revert NoPosition();
         if (p.claimed) revert AlreadyClaimed();
-        if (p.outcomeIndex != winningOutcome) revert LosingPosition();
+
+        uint256 winningPool = outcomeStaked[winningOutcome];
+        uint256 payout;
+        if (winningPool == 0) {
+            payout = p.amount;
+        } else {
+            if (p.outcomeIndex != winningOutcome) revert LosingPosition();
+            payout = (p.amount * totalStaked) / winningPool;
+        }
 
         p.claimed = true;
-        uint256 winningPool = outcomeStaked[winningOutcome];
-        uint256 payout = (p.amount * totalStaked) / winningPool;
         itk.safeTransfer(msg.sender, payout);
         emit PayoutClaimed(msg.sender, payout);
     }

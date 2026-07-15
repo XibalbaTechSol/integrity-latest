@@ -181,4 +181,32 @@ contract A2ACapitalPoolTest is Test {
         assertEq(itk.balanceOf(agent), agentBalanceBefore);
         assertEq(itk.balanceOf(address(pool)), poolBalanceBefore);
     }
+
+    /// @notice Regression test: `flagBreach` used to have no status guard at all, so
+    /// calling it on a still-`Escrowed` allocation (wrong id, stale data) would set
+    /// `Breached` with the ITK still sitting in the pool and no path back to `Escrowed`
+    /// -- neither `release()` nor `clawback()` accepts a non-`Escrowed` status, so the
+    /// funds would be permanently stranded. Must revert instead.
+    function test_flagBreach_revertsOnStillEscrowedAllocation() public {
+        uint256 allocationId = _allocate();
+
+        vm.prank(admin);
+        vm.expectRevert(A2ACapitalPool.NotReleased.selector);
+        pool.flagBreach(allocationId, "wrong id or stale data");
+
+        assertEq(uint8(pool.getAllocation(allocationId).status), uint8(A2ACapitalPool.Status.Escrowed));
+        assertEq(itk.balanceOf(address(pool)), AMOUNT, "funds must stay recoverable via release/clawback, not stranded");
+    }
+
+    /// @notice Same guard, other unreachable-from state: an already-`ClawedBack`
+    /// allocation has no funds in the pool at all for a "breach" to describe.
+    function test_flagBreach_revertsOnClawedBackAllocation() public {
+        uint256 allocationId = _allocate();
+        vm.prank(allocator);
+        pool.clawback(allocationId);
+
+        vm.prank(admin);
+        vm.expectRevert(A2ACapitalPool.NotReleased.selector);
+        pool.flagBreach(allocationId, "wrong id or stale data");
+    }
 }

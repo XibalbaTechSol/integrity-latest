@@ -72,6 +72,7 @@ contract A2ACapitalPool is AccessControl, ReentrancyGuard {
     error AllocationNotFound();
     error NotAllocator();
     error NotEscrowed();
+    error NotReleased();
 
     constructor(address _itk, address _agentRegistry, address admin) {
         itk = IERC20(_itk);
@@ -142,9 +143,17 @@ contract A2ACapitalPool is AccessControl, ReentrancyGuard {
     /// agent's own stake). Moves no funds -- see contract-level NatSpec. Restricted to
     /// BREACH_REPORTER_ROLE (the oracle signer) so this history can't be spammed/faked
     /// by an arbitrary caller.
+    /// @dev Requires `status == Released` -- a still-`Escrowed` or already-`ClawedBack`
+    /// allocation has no funds outside this contract for a "breach" to even describe
+    /// (that requires the funds to have actually been released to the agent), and
+    /// neither `release()` nor `clawback()` accepts a non-`Escrowed` status, so without
+    /// this guard a wrong-id/stale-data call would set `Breached` on an allocation with
+    /// no path back to `Escrowed`, permanently stranding its escrowed ITK with no
+    /// release/clawback/rescue function reachable from that state.
     function flagBreach(uint256 allocationId, string calldata reason) external onlyRole(BREACH_REPORTER_ROLE) {
         Allocation storage a = allocations[allocationId];
         if (a.allocator == address(0)) revert AllocationNotFound();
+        if (a.status != Status.Released) revert NotReleased();
         a.status = Status.Breached;
         emit BreachFlagged(allocationId, reason);
     }

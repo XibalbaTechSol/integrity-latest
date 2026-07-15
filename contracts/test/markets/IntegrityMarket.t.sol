@@ -249,4 +249,56 @@ contract IntegrityMarketTest is Test {
         market.claimPayout();
         vm.stopPrank();
     }
+
+    /// @notice Regression test: `resolve()` reporting the true outcome when NOBODY
+    /// staked on it used to permanently lock the entire pool -- every position holder
+    /// hit `LosingPosition` on `claimPayout` (none of them hold the winning outcome by
+    /// definition) with no refund path. An honest resolver reporting a genuinely
+    /// zero-stake outcome is a real, expected scenario (not resolver misuse), so this
+    /// must resolve as a "push": every position holder gets exactly their own stake
+    /// back, and the pool drains completely.
+    function test_resolveToZeroStakeOutcome_refundsEveryoneTheirOwnStake() public {
+        IntegrityMarket market = _deployMarket(highAisAgent, 0);
+
+        vm.startPrank(highAisAgent);
+        itk.approve(address(market), 100 ether);
+        market.enterPosition(0, 100 ether, keccak256("commit-high"));
+        vm.stopPrank();
+
+        vm.startPrank(midAisAgent);
+        itk.approve(address(market), 300 ether);
+        market.enterPosition(0, 300 ether, keccak256("commit-mid"));
+        vm.stopPrank();
+
+        vm.startPrank(lowAisAgent);
+        itk.approve(address(market), 200 ether);
+        market.enterPosition(0, 200 ether, keccak256("commit-low"));
+        vm.stopPrank();
+
+        // Everyone staked on outcome 0 -- the resolver reports the true outcome (1),
+        // which has zero stake.
+        vm.prank(resolver);
+        market.resolve(1);
+
+        assertFalse(market.wasCorrect(highAisAgent));
+        assertFalse(market.wasCorrect(midAisAgent));
+        assertFalse(market.wasCorrect(lowAisAgent));
+
+        uint256 highBalanceBefore = itk.balanceOf(highAisAgent);
+        vm.prank(highAisAgent);
+        market.claimPayout();
+        assertEq(itk.balanceOf(highAisAgent) - highBalanceBefore, 100 ether, "must receive exactly its own stake back, not a pari-mutuel share");
+
+        uint256 midBalanceBefore = itk.balanceOf(midAisAgent);
+        vm.prank(midAisAgent);
+        market.claimPayout();
+        assertEq(itk.balanceOf(midAisAgent) - midBalanceBefore, 300 ether);
+
+        uint256 lowBalanceBefore = itk.balanceOf(lowAisAgent);
+        vm.prank(lowAisAgent);
+        market.claimPayout();
+        assertEq(itk.balanceOf(lowAisAgent) - lowBalanceBefore, 200 ether);
+
+        assertEq(itk.balanceOf(address(market)), 0, "the pool must drain completely, no funds left stranded");
+    }
 }

@@ -43,12 +43,21 @@ contract SmartBAAFactory is AccessControl {
     /// active Covered Entity) and `businessAssociate` (any Sovereign Agent address —
     /// deliberately not required to be pre-registered anywhere, since "being a business
     /// associate" is exactly the status this agreement itself establishes).
+    /// @dev Allows re-forming a BAA for the same pair once the prior one has reached
+    /// `Terminated` (via `SmartBAA.revoke()` or a slashing `arbitrate(true)`) — BAAs are
+    /// routinely renewed in practice, and `baaOf` previously never cleared, permanently
+    /// blocking `createBAA` for that pair after the first termination with no recovery
+    /// path. Still blocks a duplicate while the existing agreement is `Proposed`,
+    /// `Active`, or `Disputed` (i.e. genuinely still in force or being arbitrated).
     function createBAA(address businessAssociate, bytes32 agreementHash, uint256 requiredCollateral)
         external
         returns (address baa)
     {
         if (!entityRegistry.isActiveCoveredEntity(msg.sender)) revert NotActiveCoveredEntity();
-        if (baaOf[msg.sender][businessAssociate] != address(0)) revert BAAAlreadyExists();
+        address existing = baaOf[msg.sender][businessAssociate];
+        if (existing != address(0) && SmartBAA(existing).status() != SmartBAA.Status.Terminated) {
+            revert BAAAlreadyExists();
+        }
 
         baa = address(
             new SmartBAA(msg.sender, businessAssociate, arbitrator, agreementHash, requiredCollateral, itk)
