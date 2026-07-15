@@ -67,7 +67,6 @@ def deployed_chain():
         ["anvil", "--port", str(port), "--silent"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        env={**os.environ},
     )
     try:
         _wait_for_rpc(rpc_url)
@@ -79,7 +78,7 @@ def deployed_chain():
             cwd=CONTRACTS_DIR,
             capture_output=True,
             text=True,
-            env={**os.environ, "FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY},
+            env=dict(os.environ, FUNDER_PRIVATE_KEY=ANVIL_DEV_PRIVATE_KEY),
         )
         if result.returncode != 0:
             raise RuntimeError(f"Deploy.s.sol failed:\n{result.stdout}\n{result.stderr}")
@@ -102,7 +101,7 @@ def deployed_chain():
             cwd=CONTRACTS_DIR,
             capture_output=True,
             text=True,
-            env={**os.environ, "FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY},
+            env=dict(os.environ, FUNDER_PRIVATE_KEY=ANVIL_DEV_PRIVATE_KEY),
         )
         if markets_result.returncode != 0:
             raise RuntimeError(f"DeployMarkets.s.sol failed:\n{markets_result.stdout}\n{markets_result.stderr}")
