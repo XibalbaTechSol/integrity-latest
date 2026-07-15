@@ -67,6 +67,7 @@ def deployed_chain():
         ["anvil", "--port", str(port), "--silent"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env={**os.environ},
     )
     try:
         _wait_for_rpc(rpc_url)
