@@ -5,6 +5,7 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { oracle, type LeaderboardEntryDto } from '../services/oracle';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { SandboxConsole } from '../components/SandboxConsole';
+import { useOracleStream } from '../hooks/useOracleStream';
 
 const INTENT_DATA = [
   { time: '10:00', total: 45, hashed: 45 },
@@ -121,6 +122,9 @@ export const IntelligencePage = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntryDto[]>([]);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+
+  // Real SSE stream (all agents) — see backend/src/stream.rs.
+  const { events: liveEvents, connected: streamConnected } = useOracleStream(undefined, 40);
 
   useEffect(() => {
     let cancelled = false;
@@ -315,23 +319,39 @@ export const IntelligencePage = () => {
             </div>
           )}
 
-          {/* Telemetry Log */}
+          {/* Telemetry Log — real SSE stream, all agents */}
           {showTelemetry && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              {['AGENT-ALPHA', 'AGENT-BETA'].map((agent, i) => (
-                <div key={i} className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--success)' }}>
-                    <Activity size={18} /> TELEMETRY STREAM {agent} <SeededDataBadge />
-                  </h2>
-                  <div style={{ flex: 1, background: 'var(--bg-main)', padding: '12px', borderRadius: '6px', marginTop: '16px', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--accent-primary)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', wordBreak: 'break-word', minHeight: '150px' }}>
-                    <div style={{ opacity: 0.4 }}>[BCC-TX: 0x9fa1...] | Intent: SWAP 500 USDC | Policy: OPA_PASS | Gas: 12 gwei</div>
-                    <div style={{ opacity: 0.6 }}>[ZK-PROOF: UltraHonk] | Generated in 420ms | Verified by Base L2</div>
-                    <div style={{ opacity: 0.8 }}>[BCC-TX: 0x8b3c...] | Intent: TRANSFER 10 ITK | Policy: OPA_PASS | Gas: 14 gwei</div>
-                    <div>[ENCLAVE_ATTEST] | PCR0: e3b0c442 | PCR1: 8d743a12 | Status: VALID</div>
-                    <div>[BCC-TX: 0x7c22...] | Intent: DELEGATE STAKE | Policy: OPA_PASS | Gas: 11 gwei</div>
-                  </div>
-                </div>
-              ))}
+            <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--success)' }}>
+                <Activity size={18} /> LIVE TELEMETRY STREAM
+                {streamConnected ? <LiveBadge /> : <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Connecting…</span>}
+              </h2>
+              <div style={{ flex: 1, background: 'var(--bg-main)', padding: '12px', borderRadius: '6px', marginTop: '16px', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', wordBreak: 'break-word', minHeight: '150px', maxHeight: '360px' }}>
+                {liveEvents.length === 0 && (
+                  <div style={{ opacity: 0.6, color: 'var(--text-muted)' }}>Awaiting real telemetry/OTLP activity from any agent…</div>
+                )}
+                {liveEvents.map((ev, i) => {
+                  if (ev.type === 'TelemetryEvent') {
+                    return (
+                      <div key={i} style={{ color: ev.flagged ? 'var(--danger)' : 'var(--accent-primary)' }}>
+                        [TELEMETRY] {ev.agent_id} | event {ev.event_id.slice(0, 8)} | {ev.flagged ? 'FLAGGED' : 'nominal'}
+                      </div>
+                    );
+                  }
+                  if (ev.type === 'OtelSpan') {
+                    return (
+                      <div key={i} style={{ color: 'var(--accent-primary)', opacity: 0.85 }}>
+                        [OTLP-SPAN] {ev.agent_id} | {ev.name} | trace {ev.trace_id.slice(0, 8)}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={i} style={{ color: 'var(--gold)' }}>
+                      [AIS] {ev.agent_id} | score {ev.ais.toFixed(1)} | zk×{ev.zk_boost}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

@@ -341,7 +341,7 @@ expect(received).toEqual(expected) // deep equality
           - generic [ref=e560]:
             - generic [ref=e561]: "[system] Legacy IDE Interface loaded."
             - generic [ref=e562]: "[system] Connected to Xibalba Agent Registry."
-            - generic [ref=e563]: "[1:27:12 AM] [error] Failed to fetch agents: Failed to fetch"
+            - generic [ref=e563]: "[1:37:19 AM] [error] Failed to fetch agents: Failed to fetch"
   - generic [ref=e564]:
     - alert
     - alert

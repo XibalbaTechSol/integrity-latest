@@ -19,6 +19,11 @@ export default defineConfig({
     // not a vitest one — its *.spec.ts files would otherwise match
     // vitest's default glob and fail to even collect (Playwright's
     // test.describe() throws outside a Playwright test runner).
-    exclude: ['e2e/**', 'node_modules/**'],
+    // demo/ is a separate Python (uv-managed) scenario-engine package that happens to
+    // carry its own node:test-based script (whatsapp-bridge/allowlist.test.mjs) —
+    // Vitest's default glob picks it up and fails to even bundle it (node:test isn't
+    // something Vitest can run), turning `npm test` red for reasons unrelated to this
+    // app's own tests.
+    exclude: ['e2e/**', 'node_modules/**', 'demo/**'],
   },
 })

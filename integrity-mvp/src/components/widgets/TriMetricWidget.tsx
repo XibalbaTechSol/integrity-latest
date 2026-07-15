@@ -1,6 +1,4 @@
 import React from 'react';
-import 'katex/dist/katex.min.css';
-import { BlockMath, InlineMath } from 'react-katex';
 import { Activity, ShieldCheck, Lock } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
@@ -11,13 +9,25 @@ interface TriMetricWidgetProps {
 
 export const TriMetricWidget: React.FC<TriMetricWidgetProps> = ({ highIntegrityPct }) => {
     // Metric 1: AIS Deficit
-    const aisFormula = "\\Delta_{\\text{AIS}} = 1 - \\left( \\sum_{i=1}^{4} w_i S_i \\right) \\times \\text{ZK}_{\\text{boost}}";
+    const AisFormula = () => (
+        <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+            &Delta;<sub>AIS</sub> = 1 - (&sum; w<sub>i</sub> S<sub>i</sub>) &times; ZK<sub>boost</sub>
+        </div>
+    );
     
     // Metric 2: BCC Intent Violation Rate
-    const bccFormula = "\\rho_{\\text{BCC}} = \\frac{N_{\\text{blocked}}}{N_{\\text{total}}} \\times 100";
+    const BccFormula = () => (
+        <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+            &rho;<sub>BCC</sub> = (N<sub>blocked</sub> / N<sub>total</sub>) &times; 100
+        </div>
+    );
     
     // Metric 3: Collateral Exposure Risk
-    const exposureFormula = "E_{\\text{risk}} = \\int_{0}^{t} P(\\text{leak}) \\cdot C_{\\text{staked}} \\, dt";
+    const ExposureFormula = () => (
+        <div style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+            E<sub>risk</sub> = &int; P(leak) &middot; C<sub>staked</sub> dt
+        </div>
+    );
 
     // Mock live values derived from global metrics
     const avgAis = highIntegrityPct ? (highIntegrityPct > 80 ? 920 : 850) : 950;
@@ -57,12 +67,12 @@ export const TriMetricWidget: React.FC<TriMetricWidgetProps> = ({ highIntegrityP
                             <ShieldCheck size={16} color="var(--gold)" /> Agent Integrity Score Deficit
                         </div>
                         <div style={{ fontSize: '0.85rem', marginBottom: '16px', color: 'rgba(255,255,255,0.4)', overflowX: 'auto', overflowY: 'hidden', paddingBottom: '4px' }} className="custom-scrollbar">
-                            <BlockMath math={aisFormula} />
+                            <AisFormula />
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '16px', position: 'relative', zIndex: 1 }}>
                         <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1, textShadow: '0 4px 10px rgba(0,0,0,0.5)' }}>
-                            <InlineMath math={`\\mathbf{${deficitPct}\\%}`} />
+                            <span>{deficitPct}%</span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--gold)', fontWeight: 600 }}>Global Network Avg</div>
                     </div>
@@ -83,12 +93,12 @@ export const TriMetricWidget: React.FC<TriMetricWidgetProps> = ({ highIntegrityP
                             <Lock size={16} color="var(--danger)" /> BCC Intent Violation Rate
                         </div>
                         <div style={{ fontSize: '0.85rem', marginBottom: '16px', color: 'rgba(255,255,255,0.4)', overflowX: 'auto', overflowY: 'hidden', paddingBottom: '4px' }} className="custom-scrollbar">
-                            <BlockMath math={bccFormula} />
+                            <BccFormula />
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '16px', position: 'relative', zIndex: 1 }}>
                         <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1, color: 'var(--danger)', textShadow: '0 4px 10px rgba(244,63,94,0.3)' }}>
-                            <InlineMath math={`\\mathbf{${blockedRate}\\%}`} />
+                            <span>{blockedRate}%</span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--danger)', fontWeight: 600 }}>Rolling 24h</div>
                     </div>
@@ -109,12 +119,12 @@ export const TriMetricWidget: React.FC<TriMetricWidgetProps> = ({ highIntegrityP
                             <Activity size={16} color="var(--primary)" /> Smart BAA Value at Risk
                         </div>
                         <div style={{ fontSize: '0.85rem', marginBottom: '16px', color: 'rgba(255,255,255,0.4)', overflowX: 'auto', overflowY: 'hidden', paddingBottom: '4px' }} className="custom-scrollbar">
-                            <BlockMath math={exposureFormula} />
+                            <ExposureFormula />
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '16px', position: 'relative', zIndex: 1 }}>
                         <div style={{ fontSize: '3rem', fontWeight: 800, lineHeight: 1, color: 'var(--primary)', textShadow: '0 4px 10px rgba(59,130,246,0.3)' }}>
-                            <InlineMath math={`\\mathbf{${riskExposure.replace(',', '\\,')}}`} />
+                            <span>{riskExposure}</span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600 }}>ITK Staked</div>
                     </div>

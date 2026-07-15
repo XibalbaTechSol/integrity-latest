@@ -174,12 +174,12 @@ expect(received).toEqual(expected) // deep equality
                   - text: Status
                   - img [ref=e233]
           - rowgroup [ref=e237]:
-            - row "LOG-8991 1:22:40 AM Intent Pre-Execution Validated ZK Proof verified. OPA Policy check passed. BCC Middleware Success" [ref=e238]:
+            - row "LOG-8991 1:32:45 AM Intent Pre-Execution Validated ZK Proof verified. OPA Policy check passed. BCC Middleware Success" [ref=e238]:
               - cell "LOG-8991" [ref=e239]
-              - cell "1:22:40 AM" [ref=e240]:
+              - cell "1:32:45 AM" [ref=e240]:
                 - generic [ref=e241]:
                   - img [ref=e242]
-                  - text: 1:22:40 AM
+                  - text: 1:32:45 AM
               - cell "Intent Pre-Execution Validated ZK Proof verified. OPA Policy check passed." [ref=e245]:
                 - generic [ref=e246]:
                   - generic [ref=e247]: Intent Pre-Execution Validated
@@ -192,12 +192,12 @@ expect(received).toEqual(expected) // deep equality
                 - generic [ref=e256]:
                   - img [ref=e257]
                   - text: Success
-            - 'row "LOG-8990 1:12:40 AM Drift Detected: Contract Call Agent attempted swap>10,000 ITK. Blocked. Oracle Failed" [ref=e260]':
+            - 'row "LOG-8990 1:22:45 AM Drift Detected: Contract Call Agent attempted swap>10,000 ITK. Blocked. Oracle Failed" [ref=e260]':
               - cell "LOG-8990" [ref=e261]
-              - cell "1:12:40 AM" [ref=e262]:
+              - cell "1:22:45 AM" [ref=e262]:
                 - generic [ref=e263]:
                   - img [ref=e264]
-                  - text: 1:12:40 AM
+                  - text: 1:22:45 AM
               - 'cell "Drift Detected: Contract Call Agent attempted swap>10,000 ITK. Blocked." [ref=e267]':
                 - generic [ref=e268]:
                   - generic [ref=e269]: "Drift Detected: Contract Call"
@@ -210,12 +210,12 @@ expect(received).toEqual(expected) // deep equality
                 - generic [ref=e278]:
                   - img [ref=e279]
                   - text: Failed
-            - 'row "LOG-8989 12:57:40 AM SmartBAA Patient Consent Signed TxHash: 0x44f2...a90b. Recorded on Base L2. Smart Contract Success" [ref=e283]':
+            - 'row "LOG-8989 1:07:45 AM SmartBAA Patient Consent Signed TxHash: 0x44f2...a90b. Recorded on Base L2. Smart Contract Success" [ref=e283]':
               - cell "LOG-8989" [ref=e284]
-              - cell "12:57:40 AM" [ref=e285]:
+              - cell "1:07:45 AM" [ref=e285]:
                 - generic [ref=e286]:
                   - img [ref=e287]
-                  - text: 12:57:40 AM
+                  - text: 1:07:45 AM
               - 'cell "SmartBAA Patient Consent Signed TxHash: 0x44f2...a90b. Recorded on Base L2." [ref=e290]':
                 - generic [ref=e291]:
                   - generic [ref=e292]: SmartBAA Patient Consent Signed

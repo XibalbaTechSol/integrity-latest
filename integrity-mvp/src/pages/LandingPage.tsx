@@ -5,6 +5,7 @@ import { CinematicFooter } from '../components/landing/CinematicFooter';
 import { RegistryExplorer } from '../components/ui/RegistryExplorer';
 import { ContactModal } from '../components/ui/ContactModal';
 import { MermaidDiagram } from '../components/ui/MermaidDiagram';
+import { TriMetricFunctions } from '../components/landing/TriMetricFunctions';
 import { ShieldCheck, ChevronDown, Activity, Lock } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
@@ -196,6 +197,9 @@ sequenceDiagram
                         </div>
                     </div>
                 </section>
+
+                {/* 3b. The real AIS component score functions, plotted */}
+                <TriMetricFunctions />
 
                 {/* 4. How It Works */}
                 <section>

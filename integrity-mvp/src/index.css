@@ -37,6 +37,16 @@
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
+
+  /* Aliases: dozens of components across pages/widgets/landing reference
+     var(--primary) and var(--gold) directly, but neither was ever defined
+     here -- every stroke/border/fill using them silently resolved to an
+     invalid custom property (blank/initial), rendering invisible lines and
+     borders sitewide. --primary aliases the real accent color rather than
+     duplicating it, so it stays theme-consistent; --gold is a real color
+     since no equivalent semantic token already existed for it. */
+  --primary: var(--accent-primary);
+  --gold: #d4af37;
 }
 
 /* Glassmorphism Utilities */

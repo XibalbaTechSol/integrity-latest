@@ -3,17 +3,11 @@ import { Activity, ShieldCheck, Zap, FileText, Server, Radar } from 'lucide-reac
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar as RechartsRadar } from 'recharts';
 
 import { SeededDataBadge } from '../../shared/SeededDataBadge';
+import { oracle } from '../../services/oracle';
+import { useOracleStream } from '../../hooks/useOracleStream';
+import { useAgent } from '../../contexts/AgentContext';
 
 import { TriMetricWidget } from './TriMetricWidget';
-const THROUGHPUT_DATA = [
-  { time: '00:00', tps: 1200 },
-  { time: '04:00', tps: 2100 },
-  { time: '08:00', tps: 3400 },
-  { time: '12:00', tps: 4500 },
-  { time: '16:00', tps: 3100 },
-  { time: '20:00', tps: 2400 },
-  { time: '24:00', tps: 1500 }
-];
 
 const AIS_DISTRIBUTION_FALLBACK = [
   { name: 'High (900+)', count: 1420, fill: 'var(--success)' },
@@ -47,6 +41,134 @@ interface WidgetProps {
   aisDistribution?: any;
   highIntegrityPct?: number | null;
 }
+
+function formatBucketTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+const ThroughputWidget: React.FC<WidgetProps> = () => {
+  const { selectedAgent } = useAgent();
+  const [data, setData] = React.useState<{ time: string; events: number; spans: number }[]>([]);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!selectedAgent) {
+      setData([]);
+      return;
+    }
+    setLoading(true);
+    Promise.all([
+      oracle.getTelemetryVolume(selectedAgent.id, '15m'),
+      oracle.getOtelVolume(selectedAgent.id, '15m'),
+    ])
+      .then(([telemetryVolume, otelVolume]) => {
+        const byBucket = new Map<string, { time: string; events: number; spans: number }>();
+        for (const b of telemetryVolume) {
+          byBucket.set(b.bucket_start, { time: formatBucketTime(b.bucket_start), events: b.count, spans: 0 });
+        }
+        for (const b of otelVolume) {
+          const existing = byBucket.get(b.bucket_start);
+          if (existing) existing.spans = b.span_count;
+          else byBucket.set(b.bucket_start, { time: formatBucketTime(b.bucket_start), events: 0, spans: b.span_count });
+        }
+        setData(Array.from(byBucket.values()).sort((a, b) => a.time.localeCompare(b.time)));
+      })
+      .finally(() => setLoading(false));
+  }, [selectedAgent]);
+
+  const peak = data.reduce((max, d) => Math.max(max, d.events + d.spans), 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
+        <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          Oracle Throughput {!selectedAgent && <SeededDataBadge label="Select an agent for real data" />}
+        </h3>
+        <Activity size={18} className="text-muted" />
+      </div>
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        {!selectedAgent ? (
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+            Select an agent to see its real telemetry + OTLP volume.
+          </div>
+        ) : !loading && data.length === 0 ? (
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+            No telemetry/OTLP volume recorded for this agent yet.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorTpsDash" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="colorSpansDash" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--gold)" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="var(--gold)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
+              <Tooltip
+                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
+                itemStyle={{ color: 'var(--text-primary)' }}
+              />
+              <Area type="monotone" dataKey="events" name="Telemetry events" stroke="var(--success)" strokeWidth={2} fillOpacity={1} fill="url(#colorTpsDash)" />
+              <Area type="monotone" dataKey="spans" name="OTLP spans" stroke="var(--gold)" strokeWidth={2} fillOpacity={1} fill="url(#colorSpansDash)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+        {selectedAgent && data.length > 0 && (
+          <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 10px var(--success)', animation: 'pulse 2s infinite' }}></div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{peak} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>peak / 15m bucket</span></div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const EventsWidget: React.FC<WidgetProps> = () => {
+  const { events, connected } = useOracleStream(undefined, 12);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)', padding: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '8px 12px 0', flexShrink: 0 }}>
+        <h3 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+          Live Attestation Feed <div style={{ width: '6px', height: '6px', background: connected ? 'var(--success)' : 'var(--danger)', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
+        </h3>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{connected ? 'LIVE' : 'connecting…'}</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto', padding: '0 8px 8px' }} className="custom-scrollbar">
+        {events.length === 0 && (
+          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', padding: '12px' }}>Awaiting real telemetry/OTLP/AIS activity from any agent…</div>
+        )}
+        {events.map((ev, i) => {
+          const time = 'created_at' in ev ? new Date(ev.created_at).toLocaleTimeString() : '';
+          let msg: string;
+          let color: string;
+          if (ev.type === 'TelemetryEvent') {
+            msg = `${ev.agent_id} — telemetry ${ev.flagged ? 'FLAGGED' : 'nominal'} (${ev.event_id.slice(0, 8)})`;
+            color = ev.flagged ? 'var(--danger)' : 'var(--success)';
+          } else if (ev.type === 'OtelSpan') {
+            msg = `${ev.agent_id} — span ${ev.name} (trace ${ev.trace_id.slice(0, 8)})`;
+            color = 'var(--primary)';
+          } else {
+            msg = `${ev.agent_id} — AIS ${ev.ais.toFixed(1)} (zk×${ev.zk_boost})`;
+            color = 'var(--gold)';
+          }
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '6px 8px', borderLeft: `2px solid ${color}`, background: 'rgba(255,255,255,0.02)', fontFamily: 'var(--font-mono)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>{time}</div>
+              <div style={{ color, fontSize: '0.75rem', lineHeight: 1.4 }}>{msg}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const NotesWidget: React.FC<WidgetProps> = () => {
   const [text, setText] = React.useState('System status: Active. ZK proofs anchoring every 10 min. Check health before rotation.');
@@ -130,41 +252,10 @@ export const WidgetRegistry: Record<string, {
     )
   },
   throughput: {
-    name: 'Oracle Throughput (TPS)',
-    description: 'Realtime TPS measurement for Oracle transactions.',
+    name: 'Oracle Throughput',
+    description: 'Real telemetry + OTLP span volume for the selected agent, bucketed over time.',
     defaultSize: { w: 4, h: 2 },
-    component: () => (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
-          <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Oracle Throughput (TPS) <SeededDataBadge />
-          </h3>
-          <Activity size={18} className="text-muted" />
-        </div>
-        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={THROUGHPUT_DATA} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorTpsDash" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.02)" vertical={false} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
-                itemStyle={{ color: 'var(--text-primary)' }}
-              />
-              <Area type="monotone" dataKey="tps" stroke="var(--success)" strokeWidth={2} fillOpacity={1} fill="url(#colorTpsDash)" />
-            </AreaChart>
-          </ResponsiveContainer>
-          <div style={{ position: 'absolute', top: '10px', left: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 10px var(--success)', animation: 'pulse 2s infinite' }}></div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>4,502 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>peak TPS</span></div>
-          </div>
-        </div>
-      </div>
-    )
+    component: ThroughputWidget
   },
   latency: {
     name: 'BCC Middleware Latency (ms)',
@@ -252,33 +343,9 @@ export const WidgetRegistry: Record<string, {
   },
   events: {
     name: 'Live Attestation Feed',
-    description: 'Streaming audit log of ZKP and BCC transactions.',
+    description: 'Real streaming feed of telemetry, OTLP spans, and AIS updates from /v1/stream.',
     defaultSize: { w: 6, h: 2 },
-    component: () => (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-md)', padding: '4px', border: '1px solid rgba(255,255,255,0.05)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '8px 12px 0', flexShrink: 0 }}>
-          <h3 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-            Live Attestation Feed <div style={{ width: '6px', height: '6px', background: 'var(--danger)', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
-          </h3>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>T-0.00s</div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, overflowY: 'auto', padding: '0 8px 8px' }} className="custom-scrollbar">
-          {[
-            { time: '10:42:01.321', type: 'alert', msg: 'Suspicious payload intercepted from DID 0x9f... Blocked by BCC.', color: 'var(--danger)' },
-            { time: '10:41:15.092', type: 'contract', msg: 'SmartBAA verified for Agent Healthcare-v2. Collateral locked.', color: 'var(--primary)' },
-            { time: '10:39:50.884', type: 'success', msg: 'ZKP Attestation passed on Base L2 block 149231. Anchor confirmed.', color: 'var(--success)' },
-            { time: '10:35:12.110', type: 'warning', msg: 'BCC Middleware quarantined node in us-west-2 due to latency spike.', color: 'var(--warning)' },
-            { time: '10:30:05.405', type: 'success', msg: 'Agent Primitives deployed for new agent [did:intg:0x33b].', color: 'var(--success)' },
-            { time: '10:28:11.992', type: 'contract', msg: 'Market outcome settled on ETH>3500. Escrow distributing.', color: 'var(--gold)' },
-          ].map((event, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '6px 8px', borderLeft: `2px solid ${event.color}`, background: 'rgba(255,255,255,0.02)', fontFamily: 'var(--font-mono)' }}>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>{event.time}</div>
-              <div style={{ color: event.color, fontSize: '0.75rem', lineHeight: 1.4 }}>{event.msg}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
+    component: EventsWidget
   },
   radar: {
     name: 'Attestation Integrity Radar',

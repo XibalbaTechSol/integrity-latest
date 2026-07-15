@@ -1,26 +1,28 @@
 import { TopBar } from '../components/TopBar';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { Activity, Server, Database, Code } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
-import { oracle } from '../services/oracle';
-import { useState, useEffect } from 'react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { oracle, type TelemetryEventDetailDto } from '../services/oracle';
+import { useState, useEffect, useMemo } from 'react';
 
 // Actually AgentContext is in '../contexts/AgentContext'
 import { useAgent as useAgentContext } from '../contexts/AgentContext';
 
-const timeSeriesData = [
-  { time: '10:00', load: 45, latency: 120, throughput: 800 },
-  { time: '10:05', load: 52, latency: 135, throughput: 850 },
-  { time: '10:10', load: 48, latency: 110, throughput: 780 },
-  { time: '10:15', load: 65, latency: 180, throughput: 950 },
-  { time: '10:20', load: 78, latency: 210, throughput: 1100 },
-  { time: '10:25', load: 55, latency: 140, throughput: 890 },
-  { time: '10:30', load: 50, latency: 125, throughput: 820 }
-];
+interface VolumePoint {
+  time: string;
+  events: number;
+  flagged: number;
+  spans: number;
+}
+
+function formatBucketTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export const SdkTelemetryPage = () => {
   const { selectedAgent } = useAgentContext();
-  const [telemetry, setTelemetry] = useState<any[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetryEventDetailDto[]>([]);
+  const [volume, setVolume] = useState<VolumePoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,9 +30,25 @@ export const SdkTelemetryPage = () => {
     if (!selectedAgent) return;
     setLoading(true);
     setError(null);
-    oracle.getTelemetry(selectedAgent.id)
-      .then(data => {
-        setTelemetry(data);
+
+    Promise.all([
+      oracle.getTelemetry(selectedAgent.id),
+      oracle.getTelemetryVolume(selectedAgent.id, '15m'),
+      oracle.getOtelVolume(selectedAgent.id, '15m'),
+    ])
+      .then(([events, telemetryVolume, otelVolume]) => {
+        setTelemetry(events);
+
+        const byBucket = new Map<string, VolumePoint>();
+        for (const b of telemetryVolume) {
+          byBucket.set(b.bucket_start, { time: formatBucketTime(b.bucket_start), events: b.count, flagged: b.flagged_count, spans: 0 });
+        }
+        for (const b of otelVolume) {
+          const existing = byBucket.get(b.bucket_start);
+          if (existing) existing.spans = b.span_count;
+          else byBucket.set(b.bucket_start, { time: formatBucketTime(b.bucket_start), events: 0, flagged: 0, spans: b.span_count });
+        }
+        setVolume(Array.from(byBucket.values()).sort((a, b) => a.time.localeCompare(b.time)));
         setLoading(false);
       })
       .catch(err => {
@@ -38,6 +56,8 @@ export const SdkTelemetryPage = () => {
         setLoading(false);
       });
   }, [selectedAgent]);
+
+  const hasVolumeData = useMemo(() => volume.some(v => v.events > 0 || v.spans > 0), [volume]);
 
   return (
     <div className="main-content">
@@ -70,28 +90,43 @@ export const SdkTelemetryPage = () => {
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-6)' }}>
           {/* Time Series Data */}
           <div className="card">
-            <h2 className="panel-title">System Load & Latency (Time Series) <SeededDataBadge /></h2>
+            <h2 className="panel-title">
+              Telemetry & Span Volume (15m buckets)
+              {!selectedAgent && <SeededDataBadge label="Select an agent to load real data" />}
+            </h2>
             <div style={{ height: '300px', marginTop: '24px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeSeriesData}>
-                  <defs>
-                    <linearGradient id="colorLoad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
-                    </linearGradient>
-                    <linearGradient id="colorLatency" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--danger)" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="var(--danger)" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
-                  <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} />
-                  <Area type="monotone" dataKey="load" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorLoad)" />
-                  <Area type="monotone" dataKey="latency" stroke="var(--danger)" fillOpacity={1} fill="url(#colorLatency)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {selectedAgent && !loading && !hasVolumeData ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  No telemetry or OTLP volume recorded for this agent yet.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={volume}>
+                    <defs>
+                      <linearGradient id="colorEvents" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorFlagged" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--danger)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--danger)" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorSpans" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--gold)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--gold)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+                    <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={{ backgroundColor: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} />
+                    <Legend />
+                    <Area type="monotone" dataKey="events" name="Telemetry events" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorEvents)" />
+                    <Area type="monotone" dataKey="flagged" name="Flagged" stroke="var(--danger)" fillOpacity={1} fill="url(#colorFlagged)" />
+                    <Area type="monotone" dataKey="spans" name="OTLP spans" stroke="var(--gold)" fillOpacity={1} fill="url(#colorSpans)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
