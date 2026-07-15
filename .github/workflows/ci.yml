@@ -201,7 +201,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
         working-directory: integrity-mvp
       - run: npm test
         working-directory: integrity-mvp
