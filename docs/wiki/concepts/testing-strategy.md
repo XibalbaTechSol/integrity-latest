@@ -1,7 +1,7 @@
 ---
 title: Testing Strategy
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-15
 type: concept
 tags: [infrastructure]
 confidence: high
@@ -21,11 +21,21 @@ it plus the facts worth having in the knowledge graph directly.
 
 ## Three layers
 
-1. **Per-package** (`make test`): `forge test` (contracts, 148), `nargo
-   test` (integrity-zkp), `cargo test` (integrity-oracle, 43 lib + real
-   e2e), `pytest` (integrity-sdk 66, integrity-cli 49, bcc_middleware 49+12
-   OPA, integrity-userapi 33 against a real Postgres), `npm test`/vitest
-   (integrity-mvp, real components + `msw`-mocked HTTP boundary).
+```mermaid
+flowchart TB
+    L1["Layer 1 — Per-package (make test)<br/>forge / nargo / cargo / pytest / vitest,<br/>real toolchains, no mocked DB or chain"]
+    L2["Layer 2 — Playwright E2E (make test-e2e)<br/>real Chromium against a freshly-booted<br/>local stack (anvil + oracle + Postgres + Redis)"]
+    L3["Layer 3 — Hosted CI [NOT BUILT]<br/>no git remote yet — make test / make test-e2e<br/>run manually by a human or agent"]
+
+    L1 --> L2 --> L3
+```
+
+1. **Per-package** (`make test`): `forge test` (contracts, 165), `nargo
+   test` (integrity-zkp), `cargo test` (integrity-oracle, 54 backend +
+   scoring-core lib + real e2e), `pytest` (integrity-sdk 97, integrity-cli
+   57, bcc_middleware 75+28 OPA, integrity-userapi 33 against a real
+   Postgres), `npm test`/vitest (integrity-mvp, real components +
+   `msw`-mocked HTTP boundary).
 2. **Playwright E2E** (`make test-e2e`, new 2026-07-09): a real Chromium
    browser against the real `integrity-mvp` app, talking to a real,
    freshly-booted local stack (`integrity-mvp/e2e/global-setup.ts`: a

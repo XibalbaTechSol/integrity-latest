@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-12 | Total pages: 25 (17 concepts, 8 entities)
+> Last updated: 2026-07-15 | Total pages: 25 (17 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -35,8 +35,8 @@
 - [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Shield, market layer, $ITK, reworked CCIPReputationBridge (165 tests, live on Base Sepolia — XNS/CCIP not yet broadcast)
 - [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum AIS scoring + on-chain verification + markets/leaderboard/wallet reads + PHI-rejection backstop, ASCII-escaping canonical-JSON fix (54 tests + e2e)
 - [integrity-sdk](entities/integrity-sdk.md) — Python agent library: registration, BCC, markets, telemetry, PHI redaction, new pre-execution intent-capture (`invoke_intent`), fixed telemetry-signing wire bug (97 tests + 1 opt-in oracle e2e)
-- [integrity-cli](entities/integrity-cli.md) — developer CLI, real on-chain register incl. real oracle re-verification, new `xns` command group (56 tests + 1 opt-in oracle e2e)
-- [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA policy gate, incl. verification-tier gate (54 + 16 OPA tests)
+- [integrity-cli](entities/integrity-cli.md) — developer CLI, real on-chain register incl. real oracle re-verification, new `xns` command group (57 tests, incl. 1 opt-in oracle e2e)
+- [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA policy gate, incl. verification-tier gate, plus the new reputation-sync/slashing signer loop (`app/reputation.py`, `app/scoring_loop.py`) that pushes AIS scores and raises disputes on-chain (75 pytest + 28 OPA tests)
 - [integrity-mvp](entities/integrity-mvp.md) — the dashboard app, rewritten (2026-07-12) into a new
   16-page shell: real oracle/userapi reads and writes throughout (agents, markets, wallet, Smart BAA
   sign/revoke, real `enterPosition` bet placement, real userapi account/API-key auth), a Notion-style

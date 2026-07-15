@@ -2,7 +2,7 @@
 title: Behavioral Commitment Chain (BCC)
 acronyms: [BCC]
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-15
 type: concept
 tags: [compliance, cryptography]
 confidence: high
@@ -51,5 +51,25 @@ or [integrity-cli](../entities/integrity-cli.md) client can additionally
 attach a real [ZK proof](zkp.md) that it knows the secret behind its
 identity commitment before the middleware anchors the commitment into a
 [Merkle batch](merkle-batching.md).
+
+```mermaid
+sequenceDiagram
+    participant Agent as Agent (SDK/CLI)
+    participant MW as bcc_middleware
+    Agent->>Agent: sign commitment (canonical JSON,<br/>ensure_ascii=True)
+    Agent->>MW: POST /v1/bcc/intercept
+    MW->>MW: bind agent_public_key to agent_id<br/>(sha256(pubkey) == fingerprint)
+    MW->>MW: verify Ed25519 signature
+    alt signature/binding invalid
+        MW-->>Agent: deny
+    else valid
+        MW->>MW: policy + BAA checks<br/>(see bcc_middleware entity page)
+        MW-->>Agent: authorized
+        opt agent has a ZK proof
+            Agent->>MW: attach proof of identity/intent binding
+        end
+        MW->>MW: admit to Merkle batch
+    end
+```
 
 See [Interface Contract §4.2](../../INTERFACE_CONTRACT.md#42-bcc-commitment-the-behavioral-commitment-chain-intent-lock-object).

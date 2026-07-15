@@ -2,7 +2,7 @@
 title: Zero-Knowledge Proving Pipeline
 acronyms: [ZKP]
 created: 2026-07-07
-updated: 2026-07-12
+updated: 2026-07-15
 type: concept
 tags: [cryptography]
 confidence: high
@@ -222,6 +222,31 @@ is a manual copy (`cp integrity-zkp/generated/UltraPlonkVerifier.sol
 contracts/src/oracle/UltraPlonkVerifier.sol`) followed by a manual
 `forge script script/Deploy.s.sol` redeploy — no single command does both
 steps. `[PLANNED]`.
+
+## Pipeline, visually: what's real vs. what's a documented gap
+
+```mermaid
+flowchart LR
+    subgraph Real["Real, working today"]
+        Circuit["Circuit constraints<br/>(main.nr, 4/4 nargo test)"]
+        Prove["nargo compile → witness →<br/>bb prove / bb verify"]
+        Verifier["bb write_solidity_verifier<br/>(2465-line Honk verifier)"]
+        OracleChain["oracle: onchain_zk_boost_consistent<br/>(real isZkBoosted read)"]
+    end
+    subgraph Gaps["Documented gaps — [PLANNED]"]
+        Handoff["Manual copy into contracts/,<br/>no generate-verifier tooling"]
+        Deployed["Deployed verifier is the<br/>fail-closed PLACEHOLDER"]
+        SDKProver["SDK prover.py targets<br/>poc_commitment, not this circuit"]
+        Submit["Nothing calls<br/>submitZkAttestation"]
+        OracleFlag["oracle: zk_proof_verified is a<br/>self-reported telemetry flag"]
+    end
+
+    Circuit --> Prove --> Verifier --> Handoff --> Deployed
+    SDKProver -.-> Prove
+    Submit -.-> Deployed
+    OracleFlag -.-> OracleChain
+    OracleChain -.->|can only detect disagreement| Deployed
+```
 
 ## Summary: pipeline stage → real or gap
 

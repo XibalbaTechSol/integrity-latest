@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-07-11
+updated: 2026-07-15
 type: entity
 tags: [sdk, identity]
 confidence: high
@@ -48,7 +48,7 @@ own `SovereignAgent` address via a `GET /v1/agent/{did}` oracle lookup first
 Security: no insecure default auth token (the old prototype's `"mock_demo_token"`
 is gone); placeholder tokens are refused outside `ENVIRONMENT=local`.
 
-**51 tests** (`pytest`, 50 always-run + 1 opt-in): CliRunner + httpx-mock unit
+**57 tests** (`pytest`, incl. 1 opt-in `ORACLE_E2E` test): CliRunner + httpx-mock unit
 tests, a real anvil integration test (`test_chain.py`) that spins up a live
 chain, runs the real `Deploy.s.sol`, and exercises the CLI's on-chain code
 for real — including, as of 2026-07-11, the new `xns` commands and a
@@ -88,8 +88,7 @@ SDK test's `oracle_backend` fixture pattern — ephemeral Docker Postgres/Redis
 `CliRunner`, asserts success, and independently re-confirms via real
 `GET /v1/agent/{did}` + `GET /v1/agents` calls. Ran green standalone
 (`ORACLE_E2E=1 uv run pytest tests/test_register_oracle_e2e.py`) and as part
-of the full suite (49 passed, 1 skipped when `ORACLE_E2E` unset — same
-always-run count as before this fix, since the new test is opt-in).
+of the full suite (skipped when `ORACLE_E2E` unset, as designed).
 
 Related: [integrity-sdk](integrity-sdk.md),
 [agent primitives](../concepts/agent-primitives.md),

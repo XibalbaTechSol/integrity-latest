@@ -2,7 +2,7 @@
 title: Observability & PHI Safety Pipeline
 acronyms: [VTL]
 created: 2026-07-09
-updated: 2026-07-11
+updated: 2026-07-15
 type: concept
 tags: [sdk, compliance, infrastructure]
 confidence: high
@@ -106,6 +106,20 @@ rubric and it isn't specified yet. This pass built the storage +
 ingestion plumbing only, exactly the scope asked for; not wired into the
 [AIS](ais.md) formula in `scoring-core` (that would be its own weights/
 formula decision requiring explicit sign-off).
+
+```mermaid
+flowchart LR
+    Agent["Agent process<br/>(prompt/completion text)"]
+    Redactor["Redactor (SDK, client-side)<br/>SSN / API-key / email / phone / MRN / etc"]
+    Envelope["Signed telemetry envelope<br/>(otel_spans, judge_evaluation)"]
+    PHIrs["oracle phi.rs backstop<br/>(server-side, same categories)"]
+    DB["Postgres<br/>(telemetry_events, judge_evaluations)"]
+    Reject["400 PhiDetected<br/>(before any DB/RPC work)"]
+
+    Agent --> Redactor --> Envelope -->|POST /v1/telemetry/ingest| PHIrs
+    PHIrs -->|unredacted pattern found| Reject
+    PHIrs -->|clean| DB
+```
 
 ## Oracle-side defense in depth — built
 

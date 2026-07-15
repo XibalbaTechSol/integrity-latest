@@ -88,13 +88,14 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### 5. Run the test suites
 ```bash
-opa test policies/ -v          # 12 policy unit tests
-uv run pytest -q               # 49 tests: signature, merkle, circuit breaker,
-                                # fail-closed OPA, and REAL on-chain eth_call /
-                                # eth_sendTransaction tests against a local
-                                # anvil + minimal fixture contracts this
-                                # package deploys for itself (see
-                                # tests/fixtures/foundry/ and tests/conftest.py)
+opa test policies/ -v          # 28 policy unit tests
+uv run pytest -q               # 75 tests: signature, merkle, circuit breaker,
+                                # fail-closed OPA, reputation-sync/dispute
+                                # (app/reputation.py, app/scoring_loop.py), and
+                                # REAL on-chain eth_call / eth_sendTransaction
+                                # tests against a local anvil + minimal fixture
+                                # contracts this package deploys for itself
+                                # (see tests/fixtures/foundry/ and tests/conftest.py)
 ```
 The pytest suite starts its own throwaway `anvil` and `opa run --server`
 subprocesses per session (see `tests/conftest.py`) — you don't need step 2/3

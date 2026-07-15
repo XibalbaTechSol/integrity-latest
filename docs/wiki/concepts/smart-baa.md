@@ -2,7 +2,7 @@
 title: Smart BAA (On-Chain Business Associate Agreement Escrow)
 acronyms: [BAA]
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-15
 type: concept
 tags: [compliance, tokenomics]
 confidence: high
@@ -38,6 +38,21 @@ function raiseDispute() external onlyCE;             // CE flags a breach, Activ
 function arbitrate(bool slash) external onlyArbitrator; // Disputed -> Terminated (slash=true, collateral to CE)
                                                           //         or -> Active (slash=false, dismissed)
 function revoke() external;                          // either party, Active -> Terminated, collateral returns to BA
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Proposed: SmartBAAFactory deploys<br/>(agreementHash, requiredCollateral, arbitrator)
+    Proposed --> Active: sign() — BA posts collateral
+    Active --> Disputed: raiseDispute() — CE flags a breach
+    Active --> Terminated: revoke() — either party
+    Disputed --> Terminated: arbitrate(slash=true)<br/>collateral to CE
+    Disputed --> Active: arbitrate(slash=false)<br/>dismissed
+    Terminated --> [*]
+    note right of Disputed
+        revoke() is blocked while Disputed —
+        no dodging arbitration by exiting
+    end note
 ```
 
 **Collateral is isolated per agreement** (a single ITK balance held by this

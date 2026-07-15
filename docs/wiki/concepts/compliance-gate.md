@@ -1,7 +1,7 @@
 ---
 title: ComplianceGate & Xibalba Shield
 created: 2026-07-07
-updated: 2026-07-09
+updated: 2026-07-15
 type: concept
 tags: [compliance, layer-2]
 confidence: high
@@ -66,6 +66,24 @@ before an agent even acts: a clinical [BCC commitment](bcc.md) carries a signed
 `covered_entity_address`, OPA flags it `requires_baa`, and the middleware calls
 `SmartBAAFactory.isBAAActive(coveredEntity, agent)` — failing closed if it can't
 positively confirm.
+
+```mermaid
+flowchart TB
+    BCC["BCC commitment<br/>(covered_entity_address, requires_baa)"]
+    MW["bcc_middleware<br/>(pre-execution gate)"]
+    CG["ComplianceGate.isHealthcareCompliant<br/>(read-optimized summary)"]
+    EHR["EHRGate.checkAccess<br/>(real-time PHI-access enforcement)"]
+    BAA["SmartBAAFactory.isBAAActive(coveredEntity, agent)"]
+
+    BCC --> MW --> BAA
+    CG --> BAA
+    EHR --> BAA
+    EHR -->|also checks| Consent["patient consent"]
+    EHR -->|also checks| AIS["minimum AIS<br/>(live ReputationRegistry read)"]
+```
+
+All three consult the same underlying `isBAAActive` read rather than caching
+their own copy of BAA status — a lapsed BAA is invisible to none of them.
 
 PHI never reaching the oracle in the first place is a separate, SDK-side
 concern from this on-chain compliance gate — see

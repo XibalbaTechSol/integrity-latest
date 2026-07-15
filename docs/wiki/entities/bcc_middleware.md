@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-07-11
+updated: 2026-07-14
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -11,12 +11,19 @@ source_files:
   - bcc_middleware/app/baa.py
   - bcc_middleware/app/chain.py
   - bcc_middleware/app/merkle.py
+  - bcc_middleware/app/reputation.py
+  - bcc_middleware/app/scoring_loop.py
+  - bcc_middleware/app/config.py
   - bcc_middleware/policies/bcc.rego
 ---
 
 The pre-execution policy gate (FastAPI + OPA). An agent signs a
 [BCC commitment](../concepts/bcc.md) to what it's about to do and POSTs it to
 `POST /v1/bcc/intercept`; this service decides allow/deny before the agent acts.
+It also runs a second, independent responsibility: a periodic background loop
+that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain and
+raises slashing disputes (see "Reconciled this cycle" below) — the only place
+in the monorepo that closes that loop.
 
 ## Pipeline
 
@@ -31,8 +38,69 @@ check** (if OPA flags `requires_baa`) → admit to
 deny); anchoring happens after authorization and is best-effort. The circuit
 breaker only counts violations attributable to the agent — an OPA/RPC outage
 denies but never trips the breaker (else one outage locks out the whole fleet).
+The reputation-sync loop below follows the same best-effort posture for score
+pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
+disputes — see below.
 
-## Reconciled this cycle (2026-07-11)
+## Reconciled this cycle (2026-07-14)
+
+- **Reputation-sync & slashing loop, new.** `app/reputation.py` +
+  `app/scoring_loop.py` add a background asyncio task (started at FastAPI
+  `lifespan` startup, `SCORE_SYNC_INTERVAL_SECONDS`, default 300s; also
+  triggerable on-demand via `POST /v1/reputation/sync`) that lists every agent
+  the oracle knows about and, per agent: (1) recomputes the **pre-boost**
+  weighted AIS from `GET /v1/agent/{id}/ais`'s `components`/`weights` and
+  signs+submits a real `ReputationRegistry.updateScore(agent, baseScore)`;
+  (2) if the oracle's flagged-telemetry ratio for that agent crosses
+  `DISPUTE_FLAGGED_RATIO_THRESHOLD` over a lookback window, signs+submits a
+  real `Slasher.raiseDispute(agent, amount, reason)` locking
+  `DISPUTE_STAKE_BPS` of the agent's available stake (subject to a per-agent
+  `DISPUTE_COOLDOWN_SECONDS`). `integrity-oracle` itself stays strictly
+  read-only (see its own `chain.rs` docstring) — this is what makes
+  `bcc_middleware` the load-bearing signer for this role rather than a
+  decorative one. Reuses `ANCHOR_SIGNER_PRIVATE_KEY` as the
+  `REPUTATION_SIGNER_PRIVATE_KEY` fallback, a deliberate tradeoff on today's
+  single-operator testnet deployment where oracle-signer/disputer/anchor-signer
+  are already the same key (see `PRODUCTION_GAPS.md` §1 and
+  [Interface Contract §7a](../../INTERFACE_CONTRACT.md#7a-reputation-sync--slashing-signer-bcc_middlewareappreputationpy-scoring_looppy)).
+  Automated dispute-raising is safe to run unattended because raising only
+  *locks* stake — a separate arbiter role and challenge window (see
+  `Slasher.sol`'s NatSpec) is required to actually resolve/burn anything.
+
+```mermaid
+sequenceDiagram
+    participant Loop as scoring_loop (periodic, 300s)
+    participant Oracle as integrity-oracle
+    participant RR as agent's ReputationRegistry
+    participant Slasher as agent's Slasher
+
+    Loop->>Oracle: GET /v1/agents
+    loop each agent
+        Loop->>Oracle: GET /v1/agent/{id}/ais
+        Loop->>RR: updateScore(agent, preBoostBaseScore)
+        Loop->>Oracle: GET /v1/agent/{id}/telemetry/volume
+        alt flagged ratio over threshold and cooldown elapsed
+            Loop->>Slasher: raiseDispute(agent, amount, reason)
+            Note right of Slasher: only LOCKS stake —<br/>a separate arbiter resolves/burns
+        end
+    end
+```
+- **Interface-contract §4.2 schema doc caught up to reality.** `agent_public_key`
+  (required) and `covered_entity_address` (optional) have been real, signed,
+  load-bearing fields in `app/schemas.py`/`app/canonical.py` since the previous
+  cycle's signature-scheme/BAA reconciliation (below) — but
+  `docs/INTERFACE_CONTRACT.md`'s own §4.2 JSON example never caught up and
+  still showed the original 6-field shape. Fixed in the same pass as this
+  entry; see [BCC](../concepts/bcc.md), which already had the correct shape.
+- **Two stale artifacts found and fixed while verifying the above:**
+  `.env.example`'s `BAA_CONTRACT_NAME=SmartBAA` (must be `SmartBAAFactory` —
+  the per-pair `SmartBAA` escrow instances don't implement `isBAAActive`;
+  the actual `app/config.py` default was already correct, only the example
+  file was wrong) and `app/canonical.py`'s module docstring (still described
+  the pubkey/fingerprint binding as an open "INTEGRATION FLAG" guess, now
+  updated to state its actual ✅ RECONCILED status).
+
+## Reconciled 2026-07-11
 
 - **Verification-tier gate, real for the first time.** `input.verification_tier`
   (resolved by `app/chain.py::resolve_verification_tier` from the oracle's
@@ -66,10 +134,12 @@ denies but never trips the breaker (else one outage locks out the whole fleet).
 
 ## State
 
-**52 pytest + 16 OPA tests.** Real coverage: a fail-closed test points at a dead
+**75 pytest + 28 OPA tests.** Real coverage: a fail-closed test points at a dead
 OPA port; `test_baa_shield_integration.py` deploys the real
 [Shield contracts](../concepts/compliance-gate.md) on a local anvil and exercises
-the real two-arg BAA call.
+the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
+reputation-sync loop above, including real `updateScore`/`raiseDispute`
+transactions against `MockReputationRegistry.sol`/`MockSlasher.sol` fixtures.
 
 ## Resolved gap (found stale during `integrity-mvp/demo` work, 2026-07-09)
 

@@ -1,35 +1,26 @@
 """
 Canonicalization + Ed25519 signature verification for BCC Commitments.
 
-*** INTEGRATION FLAG ***
-docs/INTERFACE_CONTRACT.md §4.2 says the signature is computed "over the
-above fields, canonical JSON" but does not pin down:
-  (a) the exact canonicalization algorithm (key ordering, whitespace, number
-      formatting), or
-  (b) how to go from `agent_id` (a `did:integrity:<hex-pubkey-fingerprint>`
-      string) to the actual Ed25519 public key bytes needed to verify the
-      signature -- that requires either the fingerprint being a direct
-      encoding of the public key, or a DID resolution step that lives in
-      integrity-sdk (not built yet, since it's being built in parallel).
-
-Since `integrity-sdk` doesn't exist yet to check against, this module picks
-the simplest, most defensible defaults and calls them out loudly so whoever
-lands integrity-sdk's signer can reconcile:
+*** RECONCILED against integrity-sdk / integrity-cli (see
+docs/INTERFACE_CONTRACT.md §4.2 and the package README's "Integration
+reconciliation" #1-2) ***. Two things §4.2 originally left open, now pinned:
 
   (a) Canonical JSON = `json.dumps(fields, sort_keys=True,
-      separators=(",", ":"), ensure_ascii=False)` encoded as UTF-8. This is
-      the common minimal-whitespace/sorted-keys convention (a practical
-      subset of RFC 8785 JCS) and is deterministic for the plain
-      str/int/float field types used in the commitment.
-  (b) The DID fingerprint IS the raw Ed25519 public key, hex-encoded
-      (64 hex chars = 32 bytes), i.e. a fully self-certifying DID with no
-      separate resolution step. If integrity-sdk instead hashes the pubkey
-      to form the fingerprint (a real "fingerprint" rather than the key
-      itself), this verification will need a DID-document lookup added
-      here instead of decoding the DID string directly.
-
-Both assumptions are also called out in the package README under
-"Integration reconciliation".
+      separators=(",", ":"), ensure_ascii=True)` encoded as UTF-8.
+      `ensure_ascii=True` specifically (not the RFC 8785/JCS default) --
+      this is the byte-for-byte rule integrity-sdk's canonical_json_bytes
+      also implements; a mismatch here would silently break signatures on
+      any non-ASCII content.
+  (b) The DID fingerprint is `sha256(pubkey)`, NOT the raw public key --
+      a real one-way fingerprint, not a self-encoding one. Since a sha256
+      digest can't be inverted back to the key it hashed, a verifier
+      holding only `agent_id` cannot recover the pubkey needed to check
+      `signature`. The commitment therefore carries the agent's own public
+      key (`agent_public_key`, multibase, same form as the DID document's
+      `publicKeyMultibase`), and this module BINDS it before trusting it:
+      `sha256(decoded_pubkey) == agent_id` fingerprint, or reject. That
+      binding is what makes trusting a carried key safe -- see
+      `public_key_from_commitment` below.
 """
 
 from __future__ import annotations

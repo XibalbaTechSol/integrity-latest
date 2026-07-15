@@ -1,7 +1,7 @@
 ---
 title: Integrity Market (Prediction Markets, Binary Options, A2A Capital Allocation)
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-15
 type: concept
 tags: [layer-2, tokenomics, metrics]
 confidence: high
@@ -57,6 +57,15 @@ afterward. `wasCorrect` is the read [integrity-oracle](../entities/integrity-ora
 is expected to use to decide reputation/[Slasher](agent-primitives.md)
 action — fraud/misreporting handling itself lives outside this contract, to
 keep it a small auditable escrow rather than a second slashing engine.
+
+```mermaid
+flowchart LR
+    Creator["Any registered agent"] -->|MarketFactory.deployMarket| Market["IntegrityMarket clone<br/>(question, outcomes, minAIS, deadline, resolver)"]
+    Agent["Participating agent"] -->|BCC commitment signed first| Enter["enterPosition(outcome, amount,<br/>bccCommitmentHash)"]
+    Enter -->|AIS gate: effectiveScore >= minAisToEnter| Market
+    Resolver["RESOLVER_ROLE<br/>(labeled demo resolver, not a live oracle)"] -->|resolve winningOutcome| Market
+    Market -->|wasCorrect| Claim["claimPayout()<br/>losers revert LosingPosition"]
+```
 
 ### Trust boundary — documented, not hidden
 

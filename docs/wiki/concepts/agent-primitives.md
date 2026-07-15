@@ -1,7 +1,7 @@
 ---
 title: Agent Primitives (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-15
 type: concept
 tags: [identity, layer-2, tokenomics]
 confidence: high
@@ -61,6 +61,25 @@ own wallet (except the initial funding):
 4. Grant the oracle `ANCHOR_ROLE` on the StateAnchor, via `SovereignAgent.execute`.
 5. `AgentPrimitivesFactory.registerPrimitives` — clones the 5, registers all 7
    in [`XibalbaAgentRegistry`](../entities/contracts.md).
+
+```mermaid
+sequenceDiagram
+    participant Funder as Protocol funder wallet
+    participant Wallet as Agent's own EVM wallet
+    participant SA as SovereignAgent
+    participant StA as StateAnchor
+    participant Factory as AgentPrimitivesFactory
+    participant Registry as XibalbaAgentRegistry
+
+    Funder->>Wallet: 1. fund with ETH + $ITK
+    Wallet->>SA: 2. deploy (direct)
+    Wallet->>StA: 3. deploy (direct, admin = SA)
+    Wallet->>SA: 4. execute(grant oracle ANCHOR_ROLE on StA)
+    Wallet->>Factory: 5. registerPrimitives(...)
+    Factory->>Factory: clone ReputationRegistry, Slasher,<br/>VerifierRegistry, ComplianceGate, AgentProfile
+    Factory->>Registry: register all 7 primitive addresses
+    Note over Wallet,Registry: every step after #1 is signed by the<br/>agent's own key — no privileged party registers on its behalf
+```
 
 ## Implications
 

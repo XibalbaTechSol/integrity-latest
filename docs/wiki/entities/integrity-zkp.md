@@ -1,7 +1,7 @@
 ---
 title: integrity-zkp
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-07-15
 type: entity
 tags: [cryptography]
 confidence: high
@@ -49,5 +49,4 @@ verifier file is still named `UltraPlonkVerifier.sol` to match the path the
 [interface contract](../../INTERFACE_CONTRACT.md) expects, but it has
 `NUMBER_OF_PUBLIC_INPUTS=11` (Honk's internal accumulator inputs), not 3.
 
-Related: [ZKP concept](../concepts/zkp.md) *(not yet written — see queries)*,
-[BCC](../concepts/bcc.md).
+Related: [ZKP pipeline](../concepts/zkp.md), [BCC](../concepts/bcc.md).

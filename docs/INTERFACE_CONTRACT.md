@@ -105,7 +105,10 @@ against real policies. Don't write code you haven't run.
   - `GOVERNANCE_PRIVATE_KEY` — the `governance` address that is every
     agent's `Slasher` arbiter (§6.2) — never the agent's own key.
   - `DISPUTER_PRIVATE_KEY` — the protocol's `disputer` signer for
-    `Slasher.raiseDispute` (§6.2).
+    `Slasher.raiseDispute` (§6.2). At runtime, this role is actually held by
+    `bcc_middleware`'s `REPUTATION_SIGNER_PRIVATE_KEY` (falls back to
+    `ANCHOR_SIGNER_PRIVATE_KEY`) — see §7a — not a separate standalone process; this
+    entry describes the on-chain role granted at deploy time, not a second service.
   - `FUNDER_PRIVATE_KEY` — funds new agent wallets with enough native gas
     to self-deploy their `SovereignAgent`/`StateAnchor` and call
     `registerPrimitives` (§6.3), since under the self-sovereign model no
@@ -141,12 +144,51 @@ Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature 
   "intended_state_hash": "0x<32-byte hex, sha256 of the canonical intent payload>",
   "nonce": "monotonic per-agent integer",
   "timestamp": "<unix ms>",
-  "signature": "0x<hex, Ed25519 sig over the above fields, canonical JSON>"
+  "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
+  "covered_entity_address": "0x<20-byte hex EVM address> | null",
+  "signature": "0x<hex, Ed25519 sig over the above fields except signature itself, canonical JSON>"
 }
 ```
 This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —
 don't rename them per-package.
+
+Two fields were added after this doc's original draft, both now **✅
+RECONCILED** and required by `bcc_middleware`'s real implementation
+(`app/schemas.py`, `app/canonical.py`) — not carried in isolation, but
+included in the signed payload, so neither can be swapped post-signature:
+
+- `agent_public_key` — **required**. `integrity-sdk`'s DID fingerprint is
+  `sha256(pubkey)`, not the raw public key, so a verifier holding only
+  `agent_id` cannot recover the key needed to check `signature`. The agent
+  therefore carries its own public key here, same multibase form as the DID
+  document's `publicKeyMultibase` (§4.1: `"z" + base58btc(0xed 0x01 ||
+  raw_pubkey)`). The receiving service must bind it before trusting it:
+  `sha256(decoded_pubkey) == agent_id`'s fingerprint, or reject — this is
+  what makes trusting a *carried* key safe (a substituted key can't also
+  produce a sha256 preimage collision on the victim's fingerprint).
+- `covered_entity_address` — **optional**; `null`/omitted for non-healthcare
+  intent types. `contracts`' real `SmartBAAFactory.isBAAActive` takes two
+  addresses, `coveredEntity` and `businessAssociate` (the agent), not one —
+  this field names *which* covered entity (hospital) a healthcare-vertical
+  commitment (`EMR_WRITE`, `DISPENSE_MEDICATION`, `BILLING_SUBMISSION`,
+  `SECURE_EMR_WRITE`, `CLINICAL_DATA_ACCESS`) is claiming access against. Any
+  commitment whose `intent_type` causes OPA to set `requires_baa := true`
+  MUST carry it, or the on-chain BAA check fails closed with
+  `BAA_CANNOT_VERIFY` regardless of the agent's actual BAA status. Deliberately
+  an address, not a DID: covered entities are registered directly by EVM
+  address in `contracts/src/shield/CoveredEntityRegistry.sol` and have no DID
+  layer of their own.
+
+**Canonicalization, pinned:** the signature covers every field above except
+`signature` itself, serialized as `json.dumps(fields, sort_keys=True,
+separators=(",", ":"), ensure_ascii=True)` (UTF-8 bytes). `ensure_ascii=True`
+specifically — not the RFC 8785/JCS default — because it's the byte-for-byte
+rule `integrity-sdk`, `integrity-cli`, and `bcc_middleware` all independently
+implement today; a mismatch here silently breaks every signature on non-ASCII
+content. (`integrity-oracle`'s Rust-side `serde_json` does not escape
+non-ASCII by default and does not yet participate in this signature scheme —
+see `PRODUCTION_GAPS.md` for that gap if it ever needs to.)
 
 ### 4.3 Agent Integrity Score (AIS)
 Formula (from the product spec, keep as-is):
@@ -718,6 +760,30 @@ directly.
   with the intent as `input`. No local regex-only fallback path — if OPA is
   unreachable, the request must fail closed (deny), not silently approve.
 - Ship a `bcc_middleware/policies/*_test.rego` suite runnable via `opa test .`
+
+## 7a. Reputation sync & slashing signer (`bcc_middleware/app/reputation.py`, `scoring_loop.py`)
+
+`bcc_middleware` is also the protocol's oracle-signer/disputer for on-chain reputation —
+not just the pre-execution BCC policy gate §7 describes. A periodic background loop
+(started at FastAPI `lifespan` startup, `SCORE_SYNC_INTERVAL_SECONDS`, default 300s;
+also triggerable on-demand via `POST /v1/reputation/sync`) lists every agent the oracle
+knows about and, per agent:
+
+1. Recomputes the pre-boost weighted AIS from `GET /v1/agent/{id}/ais`'s
+   `components`/`weights` (NOT `ais / zk_boost` — see `scoring_loop._base_score_from_ais_response`'s
+   docstring for why that division is avoided) and signs+submits a real
+   `ReputationRegistry.updateScore(agent, baseScore)`.
+2. Reads `GET /v1/agent/{id}/telemetry/volume`'s flagged-event ratio over a lookback
+   window (`DISPUTE_LOOKBACK_BUCKET`); if it crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
+   with at least `DISPUTE_MIN_EVENTS` samples, signs+submits a real
+   `Slasher.raiseDispute(agent, amount, reason)` locking `DISPUTE_STAKE_BPS` of the
+   agent's currently-available stake, subject to a `DISPUTE_COOLDOWN_SECONDS` per-agent
+   cooldown.
+
+Reuses the existing `ANCHOR_SIGNER_PRIVATE_KEY` (Merkle-anchoring signer) by default via
+`REPUTATION_SIGNER_PRIVATE_KEY`'s fallback, rather than a dedicated key — a deliberate,
+user-made tradeoff documented in `PRODUCTION_GAPS.md` §1. `integrity-oracle` itself
+remains read-only; it never signs or submits a transaction (see `chain.rs`).
 
 ## 8. TEE attestation (honest real-verification scope)
 

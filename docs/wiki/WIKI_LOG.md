@@ -1589,3 +1589,144 @@
   - **OTel Aggregation:** The Oracle needs an OTel metrics sink to provide the MVP with real-time throughput/latency figures.
   - **Security Events:** The Oracle needs an event-sourcing layer to capture blocked `bcc_middleware` transactions.
   - **Transaction USD Valuation:** Needs external price feed integration to populate retroactive USD portfolio values.
+
+## [2026-07-14] create+update | bcc_middleware CLAUDE.md written; interface-contract §4.2 schema drift closed; wiki caught up to the reputation-sync loop
+- Wrote `bcc_middleware/CLAUDE.md` (via `/init`), the package's first dedicated
+  Claude Code guidance file — commands, the fail-closed/best-effort request
+  pipeline, the reputation-sync loop, config resolution, and the integration
+  contracts a future session needs before touching schema/chain code.
+- **Real gap found and fixed while writing it, in `docs/INTERFACE_CONTRACT.md`
+  §4.2**: the canonical BCC Commitment JSON example still showed the original
+  6-field shape. `agent_public_key` (required) and `covered_entity_address`
+  (optional) have been real, signed, load-bearing fields in
+  `bcc_middleware/app/schemas.py`/`app/canonical.py` since an earlier
+  reconciliation cycle (already correctly reflected in
+  [`concepts/bcc.md`](concepts/bcc.md) and `entities/bcc_middleware.md`'s
+  "Reconciled previous cycle" section) — but the actual cross-package
+  contract doc, the one other packages are supposed to build against, never
+  caught up. Added both fields to the example plus prose explaining their
+  binding rules, and pinned `ensure_ascii=True` canonicalization explicitly
+  (previously implied only by the phrase "canonical JSON").
+- **Two smaller staleness bugs found and fixed in the same pass**:
+  `bcc_middleware/.env.example`'s `BAA_CONTRACT_NAME=SmartBAA` (the real
+  `app/config.py` default and the README both require `SmartBAAFactory` —
+  the per-pair `SmartBAA` escrow instances don't implement `isBAAActive`; a
+  fresh local setup following the example file would silently misconfigure
+  into `BAA_CANNOT_VERIFY`), and `app/canonical.py`'s module docstring, which
+  still described the pubkey/fingerprint binding as an open "INTEGRATION
+  FLAG" guess directly contradicting the real verification code three lines
+  below it — updated to state its actual ✅ RECONCILED status.
+- **Wiki gap found on follow-up** ("should we add this to wiki"): the
+  reputation-sync/slashing loop (`app/reputation.py` + `app/scoring_loop.py`,
+  new untracked files this cycle, already reconciled into
+  `docs/INTERFACE_CONTRACT.md` §7a and briefly noted in
+  [`concepts/ais.md`](concepts/ais.md) by earlier work) was never added to
+  the actual owning page, `entities/bcc_middleware.md`, or to
+  `WIKI_INDEX.md`'s summary line for it — the entity page's pipeline
+  description, "Reconciled this cycle" list, and `source_files` all predated
+  it. Added a full "Reconciled this cycle (2026-07-14)" section there
+  (loop mechanics, signer-key reuse rationale, why automated dispute-raising
+  is safe) plus the §4.2/`.env.example`/`canonical.py` fixes above.
+- **Test counts corrected everywhere they'd drifted**: actual current count
+  (`pytest --collect-only -q`, `opa test policies/`) is **75 pytest + 28 OPA
+  tests**, not the "49 + 12" figure `README.md`, `bcc_middleware/CLAUDE.md`
+  (this session's own new file), and `entities/bcc_middleware.md`'s "State"
+  section all still carried — the two new reputation-sync test files
+  (`test_reputation.py`, `test_scoring_loop.py`) plus additional OPA policy
+  tests had pushed the real numbers up without any of the three being
+  updated. Fixed in all three; `WIKI_INDEX.md`'s bcc_middleware line and
+  "Last updated" date bumped to match.
+
+## [2026-07-15] update+lint | Wiki-wide validation pass: mermaid diagrams added to the flow-heavy pages, several more stale facts found and fixed
+- User asked ("can you validate all wiki pages look good with plenty of
+  mermaid charts where appropriate") for a quality pass across the whole
+  wiki, not just the bcc_middleware-scoped work above. Read all 25 pages
+  (17 concepts + 8 entities) plus `index.md` and `WIKI_SCHEMA.md` directly
+  rather than delegating to subagents — this wiki's "no aspirational
+  content" rule means a cold agent told to "add plenty of charts" would be
+  likely to invent flows/relationships not actually in the code, which is
+  the exact failure mode this wiki exists to prevent.
+- **Baseline**: only 2 of 25+1 pages had a mermaid diagram going in
+  (`index.md`'s system-at-a-glance flowchart, `concepts/ais.md`'s scoring
+  data-flow diagram). A suspected dead link (`WIKI_INDEX.md`'s `guides/`
+  references) turned out to be a false alarm — checked from the wrong
+  working directory; `docs/guides/` does exist with both files.
+- **9 new mermaid diagrams added, each to a page with a real flow, state
+  machine, or multi-actor relationship to visualize (not decorative) —
+  short reference/formula/wire-schema pages and low-confidence `[PLANNED]`
+  stubs were deliberately left undiagrammed**:
+  - `concepts/agent-primitives.md` — `sequenceDiagram` of the 5-step
+    self-sovereign registration sequence.
+  - `concepts/bcc.md` — `sequenceDiagram` of the intercept/sign/bind/verify
+    flow (deliberately deferring circuit-breaker/OPA/BAA internals to
+    `entities/bcc_middleware.md`'s own diagram, per the schema's
+    no-duplication rule).
+  - `concepts/zkp.md` — `flowchart` splitting the pipeline into "real,
+    working today" vs. "documented gaps `[PLANNED]`" subgraphs, matching
+    the page's existing prose summary table 1:1 — the highest-value
+    addition, since this page's whole point is which stages are real vs.
+    disconnected and a table alone under-communicates the shape of the gap.
+  - `concepts/smart-baa.md` — `stateDiagram-v2` for the real
+    Proposed/Active/Disputed/Terminated state machine.
+  - `concepts/compliance-gate.md` — `flowchart` of the three independent
+    callers (`bcc_middleware`, `ComplianceGate`, `EHRGate`) all consulting
+    the same `SmartBAAFactory.isBAAActive` read.
+  - `concepts/testing-strategy.md` — `flowchart` of the 3-layer pyramid
+    (per-package → Playwright e2e → hosted CI `[NOT BUILT]`).
+  - `concepts/integrity-market.md` — `flowchart` of the market lifecycle
+    (deploy → AIS-gated `enterPosition` → `resolve` → `claimPayout`).
+  - `concepts/observability-vtl.md` — `flowchart` of the PHI redaction
+    pipeline (SDK `Redactor` → signed envelope → oracle `phi.rs` backstop).
+  - `entities/bcc_middleware.md` — `sequenceDiagram` of the reputation-sync/
+    dispute loop added earlier in this same session's work above; a
+    genuinely new flow, not a duplicate of the `bcc.md` diagram.
+- **More stale facts found and fixed while reading every page for real**
+  (this wiki's own Phase 4 "staleness audit" lint step, run for the first
+  time in a while against pages outside the bcc_middleware-focused work
+  above):
+  - `concepts/testing-strategy.md` had drifted furthest: contracts "148"
+    (real: 165), oracle "43 lib" (real: 54), sdk "66" (real: 97), cli "49"
+    (real: 57), bcc_middleware "49+12 OPA" (real: 75+28) — every count on
+    the page was behind what the other entity pages and `WIKI_INDEX.md`
+    already correctly said elsewhere; this page alone just never got the
+    memo across several prior update passes.
+  - `entities/integrity-cli.md` was internally self-contradictory: stated
+    "51 tests (50 always-run + 1 opt-in)" in one paragraph and "49 passed,
+    1 skipped" in another, neither matching the real, freshly-verified
+    count (`pytest --collect-only -q`: **57**). Fixed both mentions and
+    `WIKI_INDEX.md`'s matching line (previously said "56").
+  - `entities/integrity-zkp.md`'s "Related" line still read
+    "[ZKP concept](../concepts/zkp.md) *(not yet written — see queries)*"
+    — `concepts/zkp.md` has existed since 2026-07-07 and is one of the
+    most substantial pages in the wiki; this dangling note just never got
+    cleaned up when that page landed. Fixed to a normal link.
+  - `entities/integrity-mvp.md`'s "What actually exists now" numbered list
+    had a real duplicate: item 1 and item 8 both described the identical
+    Notion-style widget-dashboard feature (`WidgetRegistry.tsx`,
+    `WidgetWrapper.tsx`, LocalStorage persistence) in near-identical words
+    — apparently written by two separate append passes that didn't check
+    the existing list — with the numbering also skipping straight from 6
+    to 8. Deleted the duplicate item 8, renumbered 9-11 → 8-10, and fixed
+    a dangling "(built by concurrent work referenced in item 7)" note
+    (item 7 never existed in this list) — caught my own first attempt at
+    this fix mid-edit, which had wrongly attributed the referenced work to
+    "item 1" (the widget dashboard, unrelated to the `SettingsPage` auth
+    work the sentence actually describes); corrected to note the work was
+    concurrent and not separately itemized, rather than inventing a
+    specific wrong citation.
+- **Not changed**: `concepts/{merkle-batching,did,local-metrology,
+  ais-api-spec,identity-ceiling}.md` (formula/wire-schema/table-driven
+  pages where a diagram would be redundant, not clarifying) and
+  `concepts/{cross-chain-spec,a2a-negotiation-spec,zk-ml-spec}.md` (short
+  `[PLANNED]`/`confidence: low` stubs — diagramming an unbuilt design in
+  detail risks reading as more concrete than it is). `entities/{contracts,
+  integrity-oracle,integrity-sdk,integrity-userapi}.md` were read and
+  found accurate but not diagrammed — their natural diagrams would either
+  duplicate `index.md`'s system-at-a-glance flowchart or a concept page's
+  diagram already added above, which the schema's no-duplication rule
+  argues against.
+- All mermaid blocks hand-verified by eye against `concepts/ais.md`'s
+  existing (working) diagram's style — no local mermaid renderer exists in
+  this environment, so no automated render-check was possible; flag for a
+  human/agent with mermaid preview access to spot-check if any block looks
+  off.
