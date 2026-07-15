@@ -35,6 +35,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import re
 
 from .did import Keypair
 
@@ -124,6 +125,11 @@ class NoirProver:
             Path(__file__).resolve().parent.parent / "circuits" / "poc_commitment"
         )
         self.circuit_name = "poc_commitment"
+
+        # Strictly validate the verifier_target to prevent argument injection
+        if not re.match(r'^[a-zA-Z0-9_-]+$', verifier_target):
+            raise ValueError(f"Invalid verifier_target: {verifier_target}. Must contain only alphanumeric characters, dashes, and underscores.")
+
         self.verifier_target = verifier_target
 
         self._nargo = shutil.which("nargo")
@@ -145,10 +151,19 @@ class NoirProver:
         self._ensure_vk()
 
     def _run(self, args: list, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
+        # Ensure args are safely passed without shell interpretation or null bytes
+        safe_args = []
+        for arg in args:
+            str_arg = str(arg)
+            if '\x00' in str_arg:
+                raise ValueError("Arguments must not contain null bytes.")
+            safe_args.append(str_arg)
+
         try:
             result = subprocess.run(
-                args,
+                safe_args,
                 cwd=str(cwd or self.circuit_dir),
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -264,6 +279,7 @@ class NoirProver:
                     "--verifier_target", self.verifier_target,
                 ],
                 cwd=str(self.circuit_dir),
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=60,
