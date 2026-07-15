@@ -65,7 +65,7 @@ _TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pe
 # for something else by mistake, `_load_trusted_root` fails loudly instead
 # of silently trusting whatever is on disk.
 _EXPECTED_ROOT_FINGERPRINT_SHA256 = (
-    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5"
+    "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5b"
 )
 
 # COSE algorithm identifier for ECDSA w/ SHA-384 over P-384 (RFC 8152 §8.1).
@@ -249,8 +249,7 @@ def verify_nitro_attestation(
         if not _verify_cert_signed_by(subject, issuer):
             chain_valid = False
             errors.append(
-                f"Chain signature invalid: cert[{i + 1}] "
-                f"({subject.subject.rfc4514_string()}) not signed by cert[{i}]"
+                f"Chain signature invalid: cert[{i + 1}] not signed by cert[{i}]"
             )
 
     # 3. COSE signature over the payload, checked against the LEAF cert's key
@@ -267,7 +266,7 @@ def verify_nitro_attestation(
             if not (cert.not_valid_before_utc <= reference_time <= cert.not_valid_after_utc):
                 validity_period_valid = False
                 errors.append(
-                    f"cert[{i}] ({cert.subject.rfc4514_string()}) not valid at "
+                    f"cert[{i}] not valid at "
                     f"{reference_time.isoformat()}: window is "
                     f"{cert.not_valid_before_utc.isoformat()}..{cert.not_valid_after_utc.isoformat()}"
                 )
