@@ -11,23 +11,41 @@ integrity-oracle (e.g. GET /v1/agent/{id}) for `GET /me/agents`.
 
 from __future__ import annotations
 
+import logging
+import secrets
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # --- Postgres (user data only -- accounts, api keys, ownership pointers, demo runs) ---
-    database_url: str = "postgresql://integrity:integrity_dev_only@localhost:5432/integrity_userapi"
+    database_url: str = (
+        "postgresql://integrity:integrity_dev_only@localhost:5432/integrity_userapi"
+    )
 
     # --- integrity-oracle, called over HTTP only -- never a direct chain RPC/web3 dep here ---
     oracle_url: str = "http://localhost:8080"
     oracle_timeout_seconds: float = 5.0
 
     # --- JWT auth ---
-    jwt_secret: str = "dev-only-insecure-secret-change-me"
+    jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60 * 24  # 24h
+
+    @model_validator(mode="after")
+    def _warn_if_insecure_jwt_secret(self) -> "Settings":
+        if "jwt_secret" not in self.model_fields_set:
+            logger.warning(
+                "JWT_SECRET not provided in environment! "
+                "A random secret was generated. This is insecure for production as "
+                "restarts will invalidate all active sessions."
+            )
+        return self
 
     # --- API keys ---
     # Default AIS trust ceiling stamped onto every newly-issued developer API key.
