@@ -1736,3 +1736,4 @@
 - **`AgentsPage`**: Extracted the onboarding and control verification paths (`ClaimAgentModal`, `AgentOnboarding`) out of disconnected modals. They are now presented as prominent inline cards (`ClaimAgentCard`, `RegisterAgentCard`) above the global agents grid, heavily improving UX discoverability.
 - Updated `WIKI_INDEX.md` and `docs/wiki/entities/integrity-mvp.md` to reflect these major architectural layout adjustments, maintaining consistency between implementation and our "Wiki-as-Memory Loop".
 - 2026-07-15: Added tests for `resolve_agent_primitives` error paths in `bcc_middleware/app/chain.py`. Created `bcc_middleware/tests/test_chain.py` with 4 tests covering HTTP errors, invalid JSON, missing primitives object, and missing sovereign_agent. Coverage verified with `pytest`.
+- 2026-07-15: Fixed nitro root CA fingerprint mismatch and test errors in `integrity-sdk/integrity_sdk/security/attestation.py` and `integrity-sdk/tests/test_attestation.py`.

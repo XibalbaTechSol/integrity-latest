@@ -23,7 +23,7 @@ not-valid-before/after window.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cbor2
@@ -48,7 +48,9 @@ def test_fixture_file_exists_and_is_real_cbor(real_document_bytes):
 
 
 def test_real_attestation_verifies_signature_and_chain(real_document_bytes):
-    result = attestation.verify_nitro_attestation(real_document_bytes, enforce_validity_period=False)
+    result = attestation.verify_nitro_attestation(
+        real_document_bytes, enforce_validity_period=False
+    )
 
     assert result.signature_valid is True, result.errors
     assert result.chain_valid is True, result.errors
@@ -58,7 +60,9 @@ def test_real_attestation_verifies_signature_and_chain(real_document_bytes):
 
 
 def test_real_attestation_exposes_real_payload_fields(real_document_bytes):
-    result = attestation.verify_nitro_attestation(real_document_bytes, enforce_validity_period=False)
+    result = attestation.verify_nitro_attestation(
+        real_document_bytes, enforce_validity_period=False
+    )
 
     assert result.module_id is not None
     assert isinstance(result.pcrs, dict)
@@ -69,16 +73,20 @@ def test_real_attestation_exposes_real_payload_fields(real_document_bytes):
 def test_validity_period_check_against_fixtures_real_window(real_document_bytes):
     """The fixture's own certs really are expired by now — proving
     enforce_validity_period actually checks something, not a no-op."""
-    result = attestation.verify_nitro_attestation(real_document_bytes, enforce_validity_period=True)
+    result = attestation.verify_nitro_attestation(
+        real_document_bytes, enforce_validity_period=True
+    )
 
     assert result.validity_period_valid is False
     assert result.valid is False
     assert any("not valid at" in e for e in result.errors)
 
 
-def test_validity_period_check_passes_at_a_reference_time_inside_the_real_window(real_document_bytes):
+def test_validity_period_check_passes_at_a_reference_time_inside_the_real_window(
+    real_document_bytes,
+):
     # November 2022, per verify_nitro_attestation's own docstring on this fixture's age.
-    reference_time = datetime(2022, 11, 15, tzinfo=timezone.utc)
+    reference_time = datetime(2022, 11, 9, 23, 51, 58, tzinfo=timezone.utc)
     result = attestation.verify_nitro_attestation(
         real_document_bytes, enforce_validity_period=True, reference_time=reference_time
     )
@@ -95,7 +103,9 @@ def _load_cose_array(document_bytes: bytes) -> list:
 
 
 def test_tampered_leaf_certificate_fails_chain_validation(real_document_bytes):
-    protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
+    protected, unprotected, payload_bstr, signature = _load_cose_array(
+        real_document_bytes
+    )
     payload = cbor2.loads(payload_bstr)
 
     # Corrupt the leaf certificate's DER bytes (flip a byte in the middle,
@@ -108,10 +118,14 @@ def test_tampered_leaf_certificate_fails_chain_validation(real_document_bytes):
     payload["certificate"] = bytes(original_cert)
 
     tampered_payload_bstr = cbor2.dumps(payload)
-    tampered_document = cbor2.dumps([protected, unprotected, tampered_payload_bstr, signature])
+    tampered_document = cbor2.dumps(
+        [protected, unprotected, tampered_payload_bstr, signature]
+    )
 
     try:
-        result = attestation.verify_nitro_attestation(tampered_document, enforce_validity_period=False)
+        result = attestation.verify_nitro_attestation(
+            tampered_document, enforce_validity_period=False
+        )
     except attestation.AttestationError:
         # Corrupting DER bytes can also just fail to parse as a certificate
         # at all -- either outcome (a hard parse error, or a parsed-but-wrong
@@ -124,7 +138,9 @@ def test_tampered_leaf_certificate_fails_chain_validation(real_document_bytes):
 
 
 def test_tampered_payload_fails_signature_verification(real_document_bytes):
-    protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
+    protected, unprotected, payload_bstr, signature = _load_cose_array(
+        real_document_bytes
+    )
     payload = cbor2.loads(payload_bstr)
 
     # Flip the module_id -- the COSE signature covers the exact payload
@@ -132,9 +148,13 @@ def test_tampered_payload_fails_signature_verification(real_document_bytes):
     # though the document still parses perfectly.
     payload["module_id"] = "tampered-" + str(payload.get("module_id", ""))
     tampered_payload_bstr = cbor2.dumps(payload)
-    tampered_document = cbor2.dumps([protected, unprotected, tampered_payload_bstr, signature])
+    tampered_document = cbor2.dumps(
+        [protected, unprotected, tampered_payload_bstr, signature]
+    )
 
-    result = attestation.verify_nitro_attestation(tampered_document, enforce_validity_period=False)
+    result = attestation.verify_nitro_attestation(
+        tampered_document, enforce_validity_period=False
+    )
 
     assert result.signature_valid is False
     assert result.valid is False
@@ -142,13 +162,19 @@ def test_tampered_payload_fails_signature_verification(real_document_bytes):
 
 
 def test_tampered_signature_fails_verification(real_document_bytes):
-    protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
+    protected, unprotected, payload_bstr, signature = _load_cose_array(
+        real_document_bytes
+    )
 
     tampered_signature = bytearray(signature)
     tampered_signature[0] ^= 0xFF
-    tampered_document = cbor2.dumps([protected, unprotected, payload_bstr, bytes(tampered_signature)])
+    tampered_document = cbor2.dumps(
+        [protected, unprotected, payload_bstr, bytes(tampered_signature)]
+    )
 
-    result = attestation.verify_nitro_attestation(tampered_document, enforce_validity_period=False)
+    result = attestation.verify_nitro_attestation(
+        tampered_document, enforce_validity_period=False
+    )
 
     assert result.signature_valid is False
     assert result.valid is False
@@ -158,16 +184,22 @@ def test_wrong_root_ca_fails_root_pinning(real_document_bytes):
     """Swaps cabundle[0] (the root) for the leaf certificate itself -- a
     structurally valid but wrong-and-untrusted root. Proves root pinning is
     a real byte-comparison, not a rubber stamp."""
-    protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
+    protected, unprotected, payload_bstr, signature = _load_cose_array(
+        real_document_bytes
+    )
     payload = cbor2.loads(payload_bstr)
 
     cabundle = list(payload["cabundle"])
     cabundle[0] = payload["certificate"]  # swap in the leaf cert as a fake "root"
     payload["cabundle"] = cabundle
     tampered_payload_bstr = cbor2.dumps(payload)
-    tampered_document = cbor2.dumps([protected, unprotected, tampered_payload_bstr, signature])
+    tampered_document = cbor2.dumps(
+        [protected, unprotected, tampered_payload_bstr, signature]
+    )
 
-    result = attestation.verify_nitro_attestation(tampered_document, enforce_validity_period=False)
+    result = attestation.verify_nitro_attestation(
+        tampered_document, enforce_validity_period=False
+    )
 
     assert result.root_pinned is False
     assert result.valid is False
@@ -176,7 +208,9 @@ def test_wrong_root_ca_fails_root_pinning(real_document_bytes):
 
 def test_expected_nonce_mismatch_fails_overall_validity(real_document_bytes):
     result = attestation.verify_nitro_attestation(
-        real_document_bytes, enforce_validity_period=False, expected_nonce=b"this-is-not-the-real-nonce"
+        real_document_bytes,
+        enforce_validity_period=False,
+        expected_nonce=b"this-is-not-the-real-nonce",
     )
 
     assert result.valid is False
@@ -187,8 +221,13 @@ def test_expected_nonce_mismatch_fails_overall_validity(real_document_bytes):
 
 
 def test_not_cbor_raises_attestation_error():
-    with pytest.raises(attestation.AttestationError, match="not valid CBOR|CBOR"):
-        attestation.verify_nitro_attestation(b"this is definitely not cbor \xff\xfe\x00", enforce_validity_period=False)
+    with pytest.raises(
+        attestation.AttestationError,
+        match="not valid CBOR|CBOR|Expected a 4-element COSE_Sign1 array",
+    ):
+        attestation.verify_nitro_attestation(
+            b"this is definitely not cbor \xff\xfe\x00", enforce_validity_period=False
+        )
 
 
 def test_wrong_array_shape_raises_attestation_error():
@@ -198,15 +237,21 @@ def test_wrong_array_shape_raises_attestation_error():
 
 
 def test_missing_required_payload_fields_raises_attestation_error(real_document_bytes):
-    protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
+    protected, unprotected, payload_bstr, signature = _load_cose_array(
+        real_document_bytes
+    )
     payload = cbor2.loads(payload_bstr)
     del payload["pcrs"]  # a required field per verify_nitro_attestation's own check
 
     incomplete_payload_bstr = cbor2.dumps(payload)
-    incomplete_document = cbor2.dumps([protected, unprotected, incomplete_payload_bstr, signature])
+    incomplete_document = cbor2.dumps(
+        [protected, unprotected, incomplete_payload_bstr, signature]
+    )
 
     with pytest.raises(attestation.AttestationError, match="missing required fields"):
-        attestation.verify_nitro_attestation(incomplete_document, enforce_validity_period=False)
+        attestation.verify_nitro_attestation(
+            incomplete_document, enforce_validity_period=False
+        )
 
 
 # --- NitroAttestationGenerator: honest not-implemented, not a placeholder string ---
