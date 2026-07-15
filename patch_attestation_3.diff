@@ -1,0 +1,11 @@
+--- integrity-sdk/integrity_sdk/security/attestation.py
++++ integrity-sdk/integrity_sdk/security/attestation.py
+@@ -194,7 +194,7 @@
+
+     if not isinstance(cose_array, list) or len(cose_array) != 4:
+         raise AttestationError(
+-            f"not valid CBOR|CBOR, got {type(cose_array)} "
++            f"not valid CBOR|CBOR or Expected a 4-element COSE_Sign1 array, got {type(cose_array)} "
+             f"with {len(cose_array) if isinstance(cose_array, list) else '?'} elements"
+         )
+     protected_bstr, unprotected, payload_bstr, signature = cose_array
