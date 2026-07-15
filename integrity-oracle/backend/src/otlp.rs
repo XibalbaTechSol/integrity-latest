@@ -38,6 +38,41 @@ use uuid::Uuid;
 use crate::stream::StreamEvent;
 use crate::{db, phi, AppState};
 
+/// Fixed-window Redis rate limiter for the OTLP receiver — same mechanism and
+/// per-agent/per-minute shape as `handlers::check_telemetry_rate_limit`, but tracked
+/// under a distinct `ratelimit:otlp:*` key (separate budget from the signed
+/// `/v1/telemetry/ingest` path) since this receiver is unauthenticated by design (see
+/// this module's doc comment) and therefore needed *some* throttle even more than the
+/// authenticated path already had — every span otherwise triggered an uncapped PHI scan
+/// + synchronous Postgres insert with zero limiter, unlike every other write path in
+/// this service (PRODUCTION_GAPS.md §2).
+async fn check_otlp_rate_limit(state: &AppState, agent_id: &str) -> Result<(), TonicStatus> {
+    use redis::AsyncCommands;
+
+    let window = Utc::now().timestamp() / 60;
+    let key = format!("ratelimit:otlp:{agent_id}:{window}");
+
+    let mut conn = state.redis.clone();
+    let count: i64 = conn
+        .incr(&key, 1)
+        .await
+        .map_err(|e| TonicStatus::internal(format!("rate limiter unavailable: {e}")))?;
+    if count == 1 {
+        let _: () = conn
+            .expire(&key, 60)
+            .await
+            .map_err(|e| TonicStatus::internal(format!("rate limiter unavailable: {e}")))?;
+    }
+
+    if count > state.config.telemetry_rate_limit_per_minute as i64 {
+        return Err(TonicStatus::resource_exhausted(format!(
+            "otlp span export rate limit exceeded ({} spans/min) for agent {agent_id}",
+            state.config.telemetry_rate_limit_per_minute
+        )));
+    }
+    Ok(())
+}
+
 /// The OTel resource attribute an agent's SDK must set so an incoming span can be
 /// attributed to it — mirrors the `agent_id` field every other ingestion path
 /// (`POST /v1/telemetry/ingest`) requires. A span whose resource lacks this attribute
@@ -153,6 +188,8 @@ impl TraceService for OtlpTraceService {
         for resource_spans in &req.resource_spans {
             let agent_id = extract_agent_id(&resource_spans.resource)
                 .ok_or_else(|| TonicStatus::invalid_argument(format!("resource missing required '{AGENT_ID_ATTRIBUTE_KEY}' attribute")))?;
+
+            check_otlp_rate_limit(&self.state, &agent_id).await?;
 
             for scope_spans in &resource_spans.scope_spans {
                 for span in &scope_spans.spans {

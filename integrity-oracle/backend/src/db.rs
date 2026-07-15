@@ -333,6 +333,20 @@ pub async fn aggregate_for_ais(
 /// Telemetry events not yet folded into any anchored Merkle root, oldest first.
 /// Ordering matters: it fixes the leaf order the tree gets built with, which
 /// must be reproducible later (from `leaf_index`) to regenerate inclusion proofs.
+///
+/// **Currently dead code (PRODUCTION_GAPS.md §2).** Neither this function nor
+/// [`create_merkle_root_and_assign`] has any caller anywhere in this crate — no route,
+/// handler, or background task ever builds an oracle-side global Merkle tree from
+/// pending `telemetry_events`. Real Merkle anchoring happens entirely through
+/// `bcc_middleware/app/anchor.py`'s independent, per-agent batching (one sub-root per
+/// agent, anchored to that agent's own `StateAnchor` clone) — a different, incompatible
+/// design from this pair's single-global-root-across-all-agents model. This code, its
+/// unit tests, and the `merkle_root_id`/`leaf_index` columns it would populate
+/// (exposed, currently always `null`, via `GET /v1/agent/{id}/telemetry`'s
+/// `TelemetryEventDetailDto`) are left in place — real, working, and tested in
+/// isolation — as the oracle-side alternative if a future design ever needs the oracle
+/// itself (rather than bcc_middleware) to anchor a cross-agent root, rather than
+/// deleted outright, since deleting would also mean dropping the exposed API fields.
 pub async fn fetch_pending_leaves(pool: &PgPool) -> Result<Vec<(Uuid, [u8; 32])>, sqlx::Error> {
     let rows: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(
         r#"
@@ -517,6 +531,76 @@ pub async fn upsert_markets_index_sync(pool: &PgPool, market_count: i32, synced_
         "#,
     )
     .bind(market_count)
+    .bind(synced_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------
+// Leaderboard cache (GET /v1/leaderboard) — mirrors markets_cache/markets_index_sync
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LeaderboardCacheRow {
+    pub agent_id: String,
+    pub sovereign_agent_address: String,
+    pub effective_score: String,
+    pub refreshed_at: DateTime<Utc>,
+}
+
+pub async fn upsert_leaderboard_cache(
+    pool: &PgPool,
+    agent_id: &str,
+    sovereign_agent_address: &str,
+    effective_score: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO leaderboard_cache (agent_id, sovereign_agent_address, effective_score, refreshed_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (agent_id) DO UPDATE SET
+            sovereign_agent_address = EXCLUDED.sovereign_agent_address,
+            effective_score = EXCLUDED.effective_score,
+            refreshed_at = now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(sovereign_agent_address)
+    .bind(effective_score)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_leaderboard_cache(pool: &PgPool) -> Result<Vec<LeaderboardCacheRow>, sqlx::Error> {
+    sqlx::query_as::<_, LeaderboardCacheRow>(
+        "SELECT agent_id, sovereign_agent_address, effective_score, refreshed_at FROM leaderboard_cache",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LeaderboardSyncRow {
+    pub agent_count: i32,
+    pub synced_at: DateTime<Utc>,
+}
+
+pub async fn get_leaderboard_sync(pool: &PgPool) -> Result<Option<LeaderboardSyncRow>, sqlx::Error> {
+    sqlx::query_as::<_, LeaderboardSyncRow>("SELECT agent_count, synced_at FROM leaderboard_sync WHERE id = TRUE")
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn upsert_leaderboard_sync(pool: &PgPool, agent_count: i32, synced_at: DateTime<Utc>) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO leaderboard_sync (id, agent_count, synced_at) VALUES (TRUE, $1, $2)
+        ON CONFLICT (id) DO UPDATE SET agent_count = EXCLUDED.agent_count, synced_at = EXCLUDED.synced_at
+        "#,
+    )
+    .bind(agent_count)
     .bind(synced_at)
     .execute(pool)
     .await?;

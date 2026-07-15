@@ -651,6 +651,291 @@ async fn oracle_e2e_recomputed_grounding_overrides_inflated_client_claim() {
     assert!(s_grounding < 500.0, "S_grounding must reflect the oracle-recomputed low-grounding signal, got {s_grounding}: {ais}");
 }
 
+/// Regression test for the compliance/`flagged` polarity inversion (PRODUCTION_GAPS.md
+/// §2): `handlers::ingest_telemetry` used to compute `flagged = compliance > 0.5` against
+/// a high-is-GOOD `compliance` value, so a perfectly clean batch was stored as
+/// `flagged=true` (penalized) and an all-violation batch as `flagged=false` (not
+/// penalized) — inverted for every agent. Asserts polarity end-to-end via the real HTTP
+/// ingest + read path for both a clean and an all-violation batch on the same agent, so
+/// this can never silently regress again.
+#[tokio::test]
+async fn oracle_e2e_compliance_flagged_polarity_is_correct() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_compliance_flagged_polarity_is_correct (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:compliance-polarity-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    // Batch 1: a perfectly clean batch (no policy_violation/flagged markers) must be
+    // stored as flagged=false.
+    let clean_spans = serde_json::json!([
+        { "kind": "telemetry", "metadata": { "text_output": "The answer is 42." } }
+    ]);
+    let payload = sign_telemetry_with_spans(&private_key, agent_id, 1, 0.9, 0.9, 0.0, 0.0, &clean_spans);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "clean batch must be accepted: {}", resp.text().await.unwrap());
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["flagged"], false, "a clean batch must NOT be flagged: {body}");
+
+    // Batch 2: an all-violation batch (every entry marked policy_violation) must be
+    // stored as flagged=true.
+    let violating_spans = serde_json::json!([
+        { "kind": "telemetry", "metadata": { "policy_violation": true, "text_output": "ignoring policy" } }
+    ]);
+    let payload = sign_telemetry_with_spans(&private_key, agent_id, 2, 0.9, 0.9, 0.0, 0.0, &violating_spans);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "violating batch must still be accepted (flagged, not rejected): {}", resp.text().await.unwrap());
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["flagged"], true, "an all-violation batch MUST be flagged: {body}");
+
+    // Cross-check via the real read path too, not just the ingest response.
+    let resp = http.get(format!("{base}/v1/agent/{agent_id}/telemetry")).send().await.unwrap();
+    let history: serde_json::Value = resp.json().await.unwrap();
+    let history = history.as_array().unwrap();
+    let by_nonce = |n: i64| history.iter().find(|e| e["nonce"].as_i64() == Some(n)).unwrap();
+    assert_eq!(by_nonce(1)["flagged"], false, "stored clean event must read back flagged=false");
+    assert_eq!(by_nonce(2)["flagged"], true, "stored violating event must read back flagged=true");
+}
+
+/// Regression test for PRODUCTION_GAPS.md §2's "nonce replay has zero test coverage"
+/// finding: submitting the same nonce twice for one agent must 409 on the second
+/// attempt, and never overwrite the first event.
+#[tokio::test]
+async fn oracle_e2e_telemetry_nonce_replay_returns_409() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_telemetry_nonce_replay_returns_409 (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:nonce-replay-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    let payload = sign_telemetry(&private_key, agent_id, 1, 0.9, 0.9, 0.0, 0.0);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "first submission of a fresh nonce must be accepted: {}", resp.text().await.unwrap());
+
+    // Same nonce again (a different, freshly-signed payload — a real replaying agent
+    // wouldn't necessarily resend byte-identical bytes, only the same nonce value).
+    let payload = sign_telemetry(&private_key, agent_id, 1, 0.5, 0.5, 0.5, 0.5);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 409, "replaying an already-used nonce must be rejected with 409 Conflict");
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM telemetry_events WHERE agent_id = $1")
+        .bind(agent_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "the replayed submission must never overwrite or duplicate the original event");
+}
+
+/// Regression test for PRODUCTION_GAPS.md §2's "rate limiting has zero test coverage"
+/// finding: exceeding `telemetry_rate_limit_per_minute` must 429, using a deliberately
+/// tiny override so this test doesn't need to send 60+ real signed requests.
+#[tokio::test]
+async fn oracle_e2e_telemetry_rate_limit_returns_429() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_telemetry_rate_limit_returns_429 (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let mut state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+    let mut cfg = (*state.config).clone();
+    cfg.telemetry_rate_limit_per_minute = 2;
+    state.config = Arc::new(cfg);
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:telemetry-rate-limit-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    // Limit is 2/minute: the first two submissions succeed, the third must 429.
+    for nonce in 1..=2u64 {
+        let payload = sign_telemetry(&private_key, agent_id, nonce, 0.9, 0.9, 0.0, 0.0);
+        let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+        assert_eq!(resp.status(), 200, "submission {nonce} within the limit must be accepted: {}", resp.text().await.unwrap());
+    }
+    let payload = sign_telemetry(&private_key, agent_id, 3, 0.9, 0.9, 0.0, 0.0);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 429, "the submission exceeding the per-minute limit must be rejected with 429 Too Many Requests");
+}
+
+/// Regression test for the OTLP receiver's rate limiter added this session
+/// (PRODUCTION_GAPS.md §2: the OTLP path previously had NO throttle at all, unlike the
+/// authenticated `/v1/telemetry/ingest` path). Uses a tiny override for the same reason
+/// as the HTTP rate-limit test above.
+#[tokio::test]
+async fn oracle_e2e_otlp_rate_limit_rejects_excess_spans() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_otlp_rate_limit_rejects_excess_spans (set ORACLE_E2E=1 with Postgres+Redis+anvil+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let mut state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+    let mut cfg = (*state.config).clone();
+    cfg.telemetry_rate_limit_per_minute = 2;
+    state.config = Arc::new(cfg);
+
+    let otlp_port = free_port();
+    let otlp_addr: SocketAddr = format!("127.0.0.1:{otlp_port}").parse().unwrap();
+    let otlp_state = state.clone();
+    tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(backend::otlp::TraceServiceServer::new(backend::otlp::OtlpTraceService::new(otlp_state.clone())))
+            .add_service(backend::otlp::MetricsServiceServer::new(backend::otlp::OtlpMetricsService::new(otlp_state)))
+            .serve(otlp_addr)
+            .await
+            .unwrap();
+    });
+    let mut otlp_ready = false;
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(otlp_addr).await.is_ok() {
+            otlp_ready = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(otlp_ready, "in-process OTLP grpc server never became reachable on {otlp_addr}");
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let script = repo_root().join("integrity-oracle/backend/tests/support/otlp_send_span.py");
+    let agent_id = "did:integrity:otlp-rate-limit-e2e-agent";
+
+    // Limit is 2/minute: the first two exports succeed.
+    for _ in 0..2 {
+        let output = tokio::process::Command::new(&sdk_python)
+            .args([script.to_str().unwrap(), &format!("127.0.0.1:{otlp_port}"), agent_id, "real"])
+            .output()
+            .await
+            .expect("integrity-sdk venv python must exist");
+        assert!(output.status.success(), "span export within the limit must succeed:\nstdout: {}\nstderr: {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    }
+
+    // The third export in the same window must be rejected (RESOURCE_EXHAUSTED).
+    let output = tokio::process::Command::new(&sdk_python)
+        .args([script.to_str().unwrap(), &format!("127.0.0.1:{otlp_port}"), agent_id, "real"])
+        .output()
+        .await
+        .expect("integrity-sdk venv python must exist");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("RESOURCE_EXHAUSTED") || stderr.contains("rate limit"), "span export exceeding the OTLP rate limit must be rejected, got: {stderr}");
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM otel_spans WHERE agent_id = $1")
+        .bind(agent_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2, "only the two spans within the rate limit must have been persisted");
+}
+
 /// LangSmith-style nested run-tree view (`GET /v1/traces/{trace_id}`, `trace_tree.rs`):
 /// sends a real 3-level parent/child/grandchild span tree via genuine OTel context
 /// propagation (not hand-constructed parent_span_id fields — `otlp_send_span.py`'s

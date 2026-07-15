@@ -720,7 +720,14 @@ pub async fn ingest_telemetry(
     };
 
     let compliance = oracle_compliance(&state, &req).await;
-    let flagged = compliance > 0.5;
+    // `compliance` is high-is-good (1.0 = clean, matching derive::self_reported_compliance
+    // and oracle_compliance's on-chain `Ok(false) => 0.0` branch) — NOT the same polarity
+    // as the old client-submitted DerivedSignals.compliance field this comparator was
+    // originally written for (that field was high-is-bad, "flag likelihood"). Using `> 0.5`
+    // here inverted the compliance axis of AIS for every agent: a clean batch scored
+    // flagged=true (penalized) and an all-violation batch scored flagged=false (not
+    // penalized). See PRODUCTION_GAPS.md §2 for the full incident writeup.
+    let flagged = compliance < 0.5;
 
     // Leaf hash per merkle.rs's telemetry_leaf_data convention: keccak256 of the payload
     // (everything the client signed, so the leaf is bound to the same bytes the signature
@@ -1156,14 +1163,24 @@ pub struct LeaderboardEntryDto {
     pub realized_pnl: Option<String>,
 }
 
-#[utoipa::path(
-    get,
-    path = "/v1/leaderboard",
-    responses((status = 200, description = "Agents ranked by on-chain ReputationRegistry.effectiveScore", body = Vec<LeaderboardEntryDto>)),
-    tag = "ais",
-)]
-pub async fn get_leaderboard(State(state): State<AppState>) -> Result<Json<Vec<LeaderboardEntryDto>>, AppError> {
+/// Refreshes every agent's cached leaderboard row when the last full sync is older than
+/// [`MARKETS_CACHE_STALENESS_SECS`] (reused, not a separate constant — same tradeoff:
+/// bounded worst-case staleness vs. an N-agent RPC fan-out on every unauthenticated hit,
+/// see PRODUCTION_GAPS.md §2). Re-enumerates `agents` (not just already-cached rows) so
+/// a newly-registered agent actually appears, mirroring
+/// `refresh_markets_index_if_stale`'s exact pattern.
+async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> {
+    let sync = db::get_leaderboard_sync(&state.pool).await?;
+    let stale = match &sync {
+        None => true,
+        Some(s) => Utc::now().signed_duration_since(s.synced_at).num_seconds() > MARKETS_CACHE_STALENESS_SECS,
+    };
+    if !stale {
+        return Ok(());
+    }
+
     let agents = db::list_agents(&state.pool).await?;
+    let agent_count = agents.len();
 
     let reads = agents.into_iter().map(|agent| {
         let state = state.clone();
@@ -1175,17 +1192,37 @@ pub async fn get_leaderboard(State(state): State<AppState>) -> Result<Json<Vec<L
             Some((agent.id, row.sovereign_agent_address, score))
         }
     });
+    let results: Vec<(String, String, alloy::primitives::U256)> = futures::future::join_all(reads).await.into_iter().flatten().collect();
+    for (agent_id, sovereign_agent, score) in &results {
+        db::upsert_leaderboard_cache(&state.pool, agent_id, sovereign_agent, &score.to_string()).await?;
+    }
+    db::upsert_leaderboard_sync(&state.pool, agent_count as i32, Utc::now()).await?;
+    Ok(())
+}
 
-    let mut ranked: Vec<(String, String, alloy::primitives::U256)> = futures::future::join_all(reads).await.into_iter().flatten().collect();
-    ranked.sort_by(|a, b| b.2.cmp(&a.2));
+#[utoipa::path(
+    get,
+    path = "/v1/leaderboard",
+    responses((status = 200, description = "Agents ranked by on-chain ReputationRegistry.effectiveScore", body = Vec<LeaderboardEntryDto>)),
+    tag = "ais",
+)]
+pub async fn get_leaderboard(State(state): State<AppState>) -> Result<Json<Vec<LeaderboardEntryDto>>, AppError> {
+    refresh_leaderboard_if_stale(&state).await?;
+    let mut rows = db::list_leaderboard_cache(&state.pool).await?;
+    // effective_score is a decimal-string uint256 — compare numerically via U256, not
+    // lexicographically, or "9" would sort above "10".
+    rows.sort_by(|a, b| {
+        let sa = alloy::primitives::U256::from_str(&a.effective_score).unwrap_or_default();
+        let sb = alloy::primitives::U256::from_str(&b.effective_score).unwrap_or_default();
+        sb.cmp(&sa)
+    });
 
     Ok(Json(
-        ranked
-            .into_iter()
-            .map(|(agent_id, sovereign_agent, score)| LeaderboardEntryDto {
-                agent_id,
-                sovereign_agent,
-                effective_score: score.to_string(),
+        rows.into_iter()
+            .map(|row| LeaderboardEntryDto {
+                agent_id: row.agent_id,
+                sovereign_agent: row.sovereign_agent_address,
+                effective_score: row.effective_score,
                 realized_pnl: None,
             })
             .collect(),
@@ -1309,7 +1346,11 @@ pub struct TelemetryEventDetailDto {
     pub zk_verified: bool,
     pub leaf_hash: String,
     pub payload: serde_json::Value,
+    /// Always `null` today — see `db::fetch_pending_leaves`'s doc comment. Real Merkle
+    /// anchoring for this event's leaf happens out-of-band, per-agent, in
+    /// `bcc_middleware/app/anchor.py`, not via a root assigned back onto this row.
     pub merkle_root_id: Option<Uuid>,
+    /// Always `null` today — see `merkle_root_id`'s doc comment.
     pub leaf_index: Option<i32>,
     pub created_at: String,
 }
