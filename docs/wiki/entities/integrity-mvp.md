@@ -168,13 +168,27 @@ registered agent, not just a passing test suite.
 ## What is NOT done yet
 
 - `integrity-mvp/demo/` (the Python scenario-engine directory `make demo`
-  references) **now exists on disk** (as of 2026-07-15) — the prior version
-  of this bullet was stale. It's a real scenario engine (`integrity_demo`
-  package) that registers 4 persona agents and exercises a capital-
-  allocation tool-call loop against a live chain; as of 2026-07-15 it also
-  has an opt-in completion-callback bridge into `integrity-userapi`'s
-  `demo_runs` table (`userapi_bridge.py` — see
-  [integrity-userapi](integrity-userapi.md)). Still genuinely missing: no
+  references) **now exists on disk** (as of 2026-07-15), **and `make demo`
+  itself now works** (as of 2026-07-16 — it was documented in three places
+  but had no actual Makefile target until this pass). It's a real scenario
+  engine (`integrity_demo` package) that registers 4 persona agents and
+  exercises a capital-allocation tool-call loop against a live chain; as of
+  2026-07-15 it also has an opt-in completion-callback bridge into
+  `integrity-userapi`'s `demo_runs` table (`userapi_bridge.py` — see
+  [integrity-userapi](integrity-userapi.md)). **Actually running it
+  end-to-end against a real local chain + real oracle (2026-07-16) found
+  and fixed 3 real bugs no amount of code reading had caught**: every OTel
+  span it ever exported was silently rejected by the oracle (missing
+  `integrity.agent.id`, plus a structural one-shot-global-tracer issue
+  given this engine manages 4 different agent identities in one process —
+  fixed with real per-agent tracers, verified by querying the oracle's
+  `otel_spans` table directly post-run); one LLM call failure used to crash
+  the whole process with a raw traceback (now degrades gracefully, matching
+  the registration loop's existing per-agent error handling); and there was
+  no preflight check that the funder wallet (real Base Sepolia balance:
+  ~0.001 ETH, 10x under one agent's default funding) could actually afford
+  the run before spending gas on a doomed one. Full writeup:
+  `PRODUCTION_GAPS.md` §9. Still genuinely missing: no
   UI trigger anywhere in this dashboard creates a `demo_runs` row or
   launches this CLI process — it remains an operator-run script against
   live Base Sepolia using a funder private key.

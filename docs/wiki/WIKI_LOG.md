@@ -1862,3 +1862,44 @@ had been captured.
   `entities/integrity-oracle.md` (test count 54→80 lib + 9 e2e, new
   `derive.rs`/`otlp.rs` sections, full API list); added cross-links from
   `local-metrology.md`/`ais.md`. `WIKI_INDEX.md` page counter 25→26.
+
+## [2026-07-16] update | CI/branch-conflict investigation + integrity-mvp/demo tested end-to-end for the first time
+
+- **CI/branch investigation** (user asked why the repo had 21 branches and
+  why PRs keep conflicting): found `auto-merge-jules.yml`'s
+  `github.actor == 'jules-google[bot]'` filter has likely never matched a
+  real PR (every PR here, Jules-generated or not, is attributed to user
+  `XibalbaTechSol`) and `allow_auto_merge` was off at the repo level (a
+  documented prerequisite in that workflow's own setup comments, never
+  actually done) — fixed the latter via `gh api`. 5 of 8 open PRs were
+  confirmed genuinely `CONFLICTING` via the API. GitHub Merge Queue turned
+  out to be unavailable for this repo (a `merge_queue` ruleset rule is
+  rejected while an otherwise-identical `required_status_checks` rule
+  succeeds — likely a personal-account plan restriction). Landed instead:
+  a `required_status_checks` ruleset naming the 8 real `ci.yml` job names,
+  plus a new hourly `.github/workflows/close-conflicting-jules-prs.yml`
+  that closes genuinely-conflicting Jules-branch PRs with an explanatory
+  comment (matched by branch-name pattern, since the actor filter is
+  broken) rather than attempting automatic conflict resolution on
+  bot-generated fixes. One self-caught mistake along the way: a
+  `required_status_checks`-alone ruleset was briefly applied directly to
+  `main`'s branch protection and empirically found to block *direct*
+  pushes too, not just PR merges — removed again since it conflicted with
+  this repo's established direct-push workflow. Full writeup:
+  `PRODUCTION_GAPS.md` §8.
+- **`integrity-mvp/demo` run for real, end-to-end, for what appears to be
+  the first time** (real local anvil + real `Deploy.s.sol` + real running
+  oracle — not a live-Base-Sepolia run, the funder wallet there sits at
+  ~0.001 ETH, 10x under one agent's default funding). Found and fixed 3
+  real bugs no code review had caught: every OTel span this engine ever
+  exported was silently rejected by the oracle (missing
+  `integrity.agent.id`, a structural issue given the engine manages 4
+  agent identities in one process against OTel's one-shot global tracer
+  model — fixed with real per-agent tracers, verified by querying the
+  oracle's `otel_spans` table directly and finding correctly-attributed
+  rows for all 4 agents); an unguarded LLM call crashed the whole process
+  on any failure (now degrades like the registration loop already does);
+  and there was no preflight funder-balance check before spending gas.
+  Also added the `demo` Makefile target, which never existed despite being
+  referenced in three docs. Full writeup: `PRODUCTION_GAPS.md` §9. Updated
+  `entities/integrity-mvp.md` accordingly.
