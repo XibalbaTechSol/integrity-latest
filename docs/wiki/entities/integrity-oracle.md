@@ -1,13 +1,15 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-12
+updated: 2026-07-15
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
 source_files:
   - integrity-oracle/scoring-core/src/lib.rs
   - integrity-oracle/backend/src/handlers.rs
+  - integrity-oracle/backend/src/derive.rs
+  - integrity-oracle/backend/src/otlp.rs
   - integrity-oracle/backend/src/chain.rs
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
@@ -40,16 +42,27 @@ POST /v1/agent/register
 GET  /v1/agent/{id}
 GET  /v1/agents
 GET  /v1/agent/{id}/ais
+GET  /v1/agent/{id}/ais/history
 GET  /v1/agent/{id}/compliance
 GET  /v1/agent/{id}/wallet
 GET  /v1/agent/{id}/telemetry
+GET  /v1/agent/{id}/telemetry/volume
+GET  /v1/agent/{id}/otel/volume
 GET  /v1/agent/{id}/traces
+GET  /v1/traces/{trace_id}
 POST /v1/telemetry/ingest
 GET  /v1/markets
 GET  /v1/markets/{id}
 GET  /v1/leaderboard
+GET  /v1/stream
+GET  /v1/agent/{id}/stream
 GET  /healthz
 ```
+
+Full request-pipeline order for `POST /v1/telemetry/ingest` (PHI scan →
+agent lookup → rate limit → signature → server-side re-derivation → ZK →
+compliance → nonce replay → storage):
+[Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md).
 
 ### `GET /v1/agent/{id}/telemetry`, `GET /v1/agent/{id}/traces`
 
@@ -119,6 +132,42 @@ positions: a real `getPosition` read against every cached market for that agent'
 indexing on-chain events (`Transfer`, `PositionEntered`, `PayoutClaimed`, ...), not
 built this pass.
 
+### Server-side telemetry-signal re-derivation (`derive.rs`)
+
+`POST /v1/telemetry/ingest` does not trust a client's self-reported
+`derived_signals` — it independently recomputes entropy/grounding/sacrifice
+server-side from the same signed request's raw `otel_spans` content
+(`backend/src/derive.rs`, mirroring `integrity_sdk/telemetry/derive.py`'s
+algorithms closely enough that results agree), and derives compliance
+separately via a live on-chain "wins" check. Only the oracle's own
+recomputation feeds `telemetry_events`/[AIS](../concepts/ais.md) — the
+client's claim is stored purely as an audit-trail comparison. Two
+polarity/calibration bugs were fixed at this exact call site in the same
+pass: `performance_variance` was receiving the SDK's stability-score
+polarity (1.0=best) into a column `scoring-core` treats as a true variance
+(0.0=best) — backwards for every agent until fixed; and `gpu_hours_verified`
+now receives an hours-equivalent proxy rather than a pre-normalized `[0,1]`
+index, removing a double-log-compression that capped max-sacrifice agents
+around ~100/1000 instead of ~1000. Full pipeline-order writeup (this is
+step 5 of an 11-step ordered handler sequence — PHI scan, agent lookup,
+rate limit, and signature verification all run first):
+[Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md). Formula
+and trust-model detail: [AIS](../concepts/ais.md).
+
+### The OTLP/gRPC path (`otlp.rs`) — separate from telemetry_events, unauthenticated
+
+Lights up the SDK's already-real `OTLPSpanExporter`/`OTLPMetricExporter`
+(`telemetry/core.py::init_telemetry`, gRPC `localhost:4317`), which
+previously exported into a void — nothing listened on that port. Real spans
+arrive with **no Ed25519/secp256k1 signature envelope** (unlike
+`POST /v1/telemetry/ingest`), so this deliberately does NOT touch
+`telemetry_events`/AIS — feeding unauthenticated spans into scoring would
+let anyone move an agent's score. Trace export is fully implemented
+(PHI-scanned via the same `crate::phi` backstop, persisted to a separate
+`otel_spans` table, broadcast over SSE); metrics export is accepted (so the
+SDK's metric exporter gets a real gRPC response) but not yet parsed or
+persisted.
+
 ### PHI backstop on `POST /v1/telemetry/ingest`
 
 `src/phi.rs` mirrors `integrity-sdk/integrity_sdk/security/redactor.py`'s regex
@@ -183,22 +232,28 @@ inherited).
 
 ## State
 
-**54 backend + scoring-core lib tests** (confirmed via a real run — 46
-backend incl. 3 new `crypto::` tests for the fix above, 8 scoring-core),
+**80 backend + scoring-core lib tests** (confirmed via a real run — 72
+backend, 8 scoring-core; up from 54 with the `derive.rs` re-derivation
+module's own parity-with-`derive.py` unit tests among the additions),
 including `src/phi.rs` unit tests covering
 every PHI category, the already-redacted-marker non-reflag case, and the
 numeric-vs-string-field scan boundary), plus a real full-stack e2e (`tests/e2e.rs`,
-opt-in via `ORACLE_E2E=1`) that stands up live anvil + `Deploy.s.sol` (which now
+**9 tests**, opt-in via `ORACLE_E2E=1`) that stands up live anvil + `Deploy.s.sol` (which now
 deploys the market layer as part of genesis) + a real SDK-registered agent + Postgres
 + Redis + the HTTP server, and asserts accept-correct / reject-fabricated primitives,
 AIS scoring, the live compliance read, a real (empty, pre-any-market) `GET
 /v1/markets`, a real one-entry `GET /v1/leaderboard`, a real `GET
-/v1/agent/{id}/wallet` balance read, and the PHI backstop's real HTTP-level 400.
+/v1/agent/{id}/wallet` balance read, the PHI backstop's real HTTP-level 400, and —
+new — `oracle_e2e_recomputed_grounding_overrides_inflated_client_claim`, proving an
+agent that claims an inflated grounding score while its own signed `otel_spans`
+contain hallucination markers gets the oracle's real, low recomputation stored and
+scored, never the client's claim.
 **Documented follow-up, not built this pass:** a full market lifecycle e2e
 (`enterPosition`/`resolve`/`claimPayout` through a second real registered agent) —
 out of scope for this task; the light e2e above proves the real binding/parse/handler
 path without that heavier setup.
 
-Related: [AIS](../concepts/ais.md),
+Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
+[AIS](../concepts/ais.md),
 [agent primitives](../concepts/agent-primitives.md),
 [Interface Contract](../../INTERFACE_CONTRACT.md).

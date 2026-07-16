@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-15 | Total pages: 25 (17 concepts, 8 entities)
+> Last updated: 2026-07-15 | Total pages: 26 (18 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -16,6 +16,7 @@
 - [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent contracts; **start here**
 - [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Agent Integrity Score](concepts/ais.md)
+- [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — end-to-end: SDK collection, batching, signing, the oracle's 11-step ordered request pipeline, AIS scoring, the separate unauthenticated OTLP path (built)
 - [Behavioral Commitment Chain](concepts/bcc.md)
 - [Merkle Batching & Anchoring Convention](concepts/merkle-batching.md)
 - [Decentralized Identifier](concepts/did.md)
@@ -33,10 +34,10 @@
 
 ## Entities (built)
 - [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Shield, market layer, $ITK, reworked CCIPReputationBridge (165 tests, live on Base Sepolia — XNS/CCIP not yet broadcast)
-- [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum AIS scoring + on-chain verification + markets/leaderboard/wallet reads + PHI-rejection backstop, ASCII-escaping canonical-JSON fix (54 tests + e2e)
-- [integrity-sdk](entities/integrity-sdk.md) — Python agent library: registration, BCC, markets, telemetry, PHI redaction, new pre-execution intent-capture (`invoke_intent`), fixed telemetry-signing wire bug (97 tests + 1 opt-in oracle e2e)
+- [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum AIS scoring (incl. server-side telemetry-signal re-derivation, `derive.rs`) + on-chain verification + markets/leaderboard/wallet reads + PHI-rejection backstop + unauthenticated OTLP/gRPC trace receiver, ASCII-escaping canonical-JSON fix (80 lib tests + 9 e2e)
+- [integrity-sdk](entities/integrity-sdk.md) — Python agent library: registration, BCC, markets, telemetry (widened OpenAI/LangChain integration metadata, opt-in `redact_phi`), PHI redaction, pre-execution intent-capture (`invoke_intent`), fixed telemetry-signing wire bug (135 tests, 1 skipped + 1 opt-in oracle e2e)
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, real on-chain register incl. real oracle re-verification, new `xns` command group (57 tests, incl. 1 opt-in oracle e2e)
-- [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA policy gate, incl. verification-tier gate, plus the new reputation-sync/slashing signer loop (`app/reputation.py`, `app/scoring_loop.py`) that pushes AIS scores and raises disputes on-chain (75 pytest + 28 OPA tests)
+- [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA policy gate, incl. verification-tier gate, the reputation-sync/slashing signer loop (`app/reputation.py`, `app/scoring_loop.py`), a real async-hot-path fix (`asyncio.to_thread`) plus the per-signer nonce lock and Merkle-batcher thread-safety it required, and a real HMAC-signed verification token (91 pytest + 28 OPA tests)
 - [integrity-mvp](entities/integrity-mvp.md) — the dashboard app, rewritten (2026-07-12) into a new
   16-page shell: real oracle/userapi reads and writes throughout (agents, markets, wallet, Smart BAA
   sign/revoke, real `enterPosition` bet placement, real userapi account/API-key auth), a Notion-style
@@ -45,7 +46,7 @@
   a live backend+chain), and real project docs. Explicitly seeded (badged, not silently faked):
   order-book UI, node/network telemetry widgets, BAA creation.
 - [integrity-zkp](entities/integrity-zkp.md) — real Noir/Barretenberg circuit, compiled & proven
-- [integrity-userapi](entities/integrity-userapi.md) — FastAPI + Postgres user accounts/auth, strictly non-chain (33 tests, real Postgres, real CORS for integrity-mvp)
+- [integrity-userapi](entities/integrity-userapi.md) — FastAPI + Postgres user accounts/auth, strictly non-chain (API keys now authenticate requests, JWT revocation, login rate-limiting, demo_runs completion path — 51 tests, real Postgres, real CORS for integrity-mvp)
 
 ## Guides
 - [Smart Contract Development](../guides/smart-contract-development.md) — how to write, test, and deploy a new contract in `contracts/`: repo conventions (AccessControl, custom errors, NatSpec), Foundry test patterns (`vm.prank`/`makeAddr`/`vm.expectRevert(...selector)`), wiring into `Deploy.s.sol`/`DeployMarkets.s.sol` + `make sync-abis`, local/Base Sepolia deploy walkthrough, and the `SovereignAgent.execute` vs. direct-EOA auth convention.
