@@ -63,7 +63,17 @@ jobs:
           fi
 
           for n in $numbers; do
-            mergeable=$(gh pr view "$n" --repo "$repo" --json mergeable --jq '.mergeable')
+            # GitHub computes `mergeable` lazily -- a PR nobody has recently
+            # viewed often comes back UNKNOWN on the first query (confirmed
+            # empirically: every PR read UNKNOWN on this workflow's first
+            # real run). Poll briefly; give up and skip (not close) rather
+            # than treat a still-UNKNOWN result as non-conflicting.
+            mergeable="UNKNOWN"
+            for _ in 1 2 3 4 5; do
+              mergeable=$(gh pr view "$n" --repo "$repo" --json mergeable --jq '.mergeable')
+              [ "$mergeable" != "UNKNOWN" ] && break
+              sleep 5
+            done
             echo "PR #$n: mergeable=$mergeable"
             if [ "$mergeable" = "CONFLICTING" ]; then
               gh pr comment "$n" --repo "$repo" --body \
