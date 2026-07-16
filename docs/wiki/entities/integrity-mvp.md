@@ -51,81 +51,92 @@ React 19 + Vite + TypeScript, 16 routed pages (`src/App.tsx`). The
 rewritten shell shipped cosmetically complete but has now been fully resolved
 with real backend/chain wiring and a Notion-style drag-and-drop widget layout engine.
 
-1. **Notion-Style Block & Widget Dashboard** — Fully implemented dynamic grid-based
-   dashboard on `DashboardPage.tsx` using `react-grid-layout`. Users can toggle
-   "Edit Layout" to drag blocks via grab handles (`⋮⋮`) and resize them. Includes:
-   - `WidgetRegistry.tsx`: Maps widget types (`gauge`, `throughput`, `latency`, `nodes`, `events`, `radar`, `notes`) to high-fidelity components (Recharts diagrams, responsive grids, interactive text notes, nominal status lists).
-   - `WidgetWrapper.tsx`: Restructures panel UI with a glassmorphism theme, drag handles, and block control dropdown menus (e.g., delete/duplicate).
-   - **Local Storage Persistence**: Layout configurations and widget lists are saved to and loaded from `localStorage` (`integrity_dashboard_widgets`, `integrity_dashboard_layouts`), with a "Reset" utility to restore default structures.
-   - Fixed all linter rules-of-hooks violations in the widget components.
-2. **Fixed the build** — the missing `return`, the two broken imports
-   (rewired to real `fetch` calls / removed dead ones), a batch of
-   `noUnusedLocals`/`noUnusedParameters` cleanup, two new shared components
-   (`src/shared/{Panel,StatusBadge}.tsx`) that were imported but never
-   created. `npm run build` and `npm run lint` are clean; verified via a
-   real Playwright pass that all 16 routes render with zero console errors.
-3. **Wallet/data infrastructure** (`src/chain/`, `src/services/`,
-   `src/hooks/useSovereignAgentWrite.ts`): `wagmi`+`viem`+
-   `@tanstack/react-query` added; `scripts/sync_abis.py` extended to also
-   emit trimmed frontend-only ABIs into `src/abis/` and copy
-   `deployments.{baseSepolia,local}.json` into `src/deployments/`, the
-   same one-way sync convention `integrity-sdk`/`integrity-cli` already
-   use; `ConnectWalletButton` in `TopBar` (injected-connector only, no
-   RainbowKit); `src/services/oracle.ts`/`userapi.ts` are typed `fetch`
-   clients whose interfaces were verified field-for-field against
-   `spec/ais-api/v1/openapi.yaml` (snake_case throughout, confirmed);
-   `useSovereignAgentWrite` implements the one shared
-   `SovereignAgent.execute(target, 0, calldata)` pattern every
-   agent-attributable write needs (mirrors `integrity_sdk/markets.py`'s
-   `_execute_via_agent`).
-4. **Real reads wired, verified against a live local stack** (real anvil +
-   real `cargo run` oracle-backend + real registered test agents via
-   `integrity-cli`/the new seed script — not assumed from response shape
-   alone): `AgentContext` (was 3 hardcoded fake agents, now
-   `oracle.listAgents()`), `AgentsPage` (real DID/tier/AIS/created_at),
-   `IntelligencePage` (new real   leaderboard panel via `oracle.getLeaderboard()`), `IdentityPage`
-   (real DID + real ITK balance/open-positions via
-   `oracle.getWallet()`), `ExchangePage` (real `oracle.listMarkets()` for
-   the Active Markets list), `FinancePage` (real ITK balance, real historical
-   transactions, and real agent allowances from `oracle.getWallet()`),
-   `DashboardPage` (real AIS distribution + high-integrity % computed from real
-   agent scores, live updated via `useOracleStream` SSE events). Confirmed
-   end-to-end via Playwright against the real running stack: a real agent DID registered through `integrity-cli` appears verbatim in
-   the browser-rendered page, sourced from a captured real network
-   response — not just "the build compiles."
-5. **Honest labeling for what's still simulated** — a new
-   `src/shared/SeededDataBadge.tsx`, applied everywhere content has no
-   real backing yet and isn't wired this pass: `ChainOfThoughtPage`,
-   `SdkTelemetryPage`, `CognitionPage`, `CompareTracesPage`,
-   `DocumentsPage`, `ShieldPage`, most of `ContractsPage` (the Monaco
-   compile/deploy flow is a labeled sandbox, not a real compiler), parts
-   of `ExchangePage` (the order-book/candlestick UI — `IntegrityMarket` is
-   a pari-mutuel pool, there is no on-chain order book or price feed this
-   could ever honestly show), `FinancePage`'s network-wide treasury stats
-   and `ActuarialHub` (A2ACapitalPool/benchmark data — no oracle read
-   endpoint exists for either), `DashboardPage`'s throughput/latency/node-
-   fleet/security-event widgets (no such telemetry exists in the oracle;
-   see `PRODUCTION_GAPS.md`'s WSS/OTLP/TSDB gaps), and several
-   `SettingsPage` panels (Privacy Modes, Dev API Keys, Network Settings —
-   none wired to a real setting yet).
-6. **Mock-data seeding, done right** — `integrity-mvp/scripts/
-   seed_mock_data.py` registers real test agents (and deploys one real
-   market) via `integrity_sdk` the same way any real agent would register,
-   gated by `MOCK=true` as an explicit safety rail. Deliberately NOT a
-   "write fake rows into Postgres" script — everything it creates is a
-   genuine on-chain registration, consistent with this repo's "no silent
-   mocks" rule. Must run outside the browser (`cd integrity-sdk && uv run
-   python ../integrity-mvp/scripts/seed_mock_data.py`) since it needs the
-   protocol funder's private key, which must never reach client JS.
-   `VITE_MOCK_MODE` (`.env`, build-time, read-only in the UI) just reports
-   whether the current build is pointed at a seeded stack — it is not, and
-   architecturally cannot be, a live browser toggle that itself seeds
-   anything. `SettingsPage`'s new "Developer" panel shows this status plus
-   a copyable seed command.
-8. **Wallet-interactive writes, for real (Phase 3, 2026-07-12)**: `ExchangePage`'s "Place Order" panel now performs a real two-transaction `IntegrityToken.approve` + `IntegrityMarket.enterPosition` flow (both routed through `SovereignAgent.execute` via `useSovereignAgentWrite`), gated on the connected wallet matching the selected agent's on-chain `controller`. `ShieldPage`'s Smart BAA registry now reads real `SmartBAAFactory.BAACreated` event logs (no oracle endpoint needed — a direct `getLogs` call) and wires real `sign()`/`revoke()` writes for the business-associate side. **`ClaimAgentModal` was fundamentally rewritten**, not just fixed: the previous "claim an agent via signature challenge" premise has no on-chain support at all — `SovereignAgent.rotateController()` is `onlyController`-gated, there is no mechanism for a third party to take over an agent, and the old code submitted a transaction using ERC-20 `approve`'s selector as if it were a claim call, silently swallowing the inevitable failure. The rewritten modal ("Verify Agent Control") does something real instead: resolves the on-chain controller from `XibalbaAgentRegistry`, compares it to the connected wallet, and has the user `personal_sign` a message as a "prove you hold this key now" confirmation — no fake API calls, no transaction that was never going to succeed. All three write paths verified against a real local anvil + oracle stack: a real `enterPosition` transaction moved a market's `outcome_staked` from 0 to a real non-zero value, confirmed via Playwright reading the post-transaction UI state from a real oracle HTTP response.
-9. **userapi auth, tests, and docs (Phases 4-6, 2026-07-12)**: `SettingsPage`'s login/register/API-key management (built by work concurrent with this session, not itemized separately above) verified end-to-end via Playwright against a real running `integrity-userapi` + isolated Postgres — register, then a real `POST /api-keys` call, confirmed by the key appearing in a subsequent real `GET /api-keys` re-fetch. Added real test infrastructure: `vitest` (9 unit tests — `oracle.ts` client request-shape assertions, `useSovereignAgentWrite`'s `execute()`-wrapping logic, `AgentContext`'s real-vs-old-hardcoded-fixture behavior, all with mocked network) and `@playwright/test` (`e2e/smoke.spec.ts`, 18 tests — all 16 routes zero-console-error, a real-network-response assertion on `AgentsPage`, wallet-connect-button presence — run against a real live backend+chain per this repo's testing philosophy, not mocked). Rewrote `integrity-mvp/README.md` from the default Vite scaffold into real project docs (setup, env vars, the wallet-interactive model, what's real vs. seeded, test commands).
-10. **UI Validation and Agent Selection (2026-07-14)**: Resolved strict TypeScript compilation errors across `DashboardPage.tsx` and `FinancePage.tsx` that were preventing `npm run build` from succeeding. Fixed the agent selection logic by propagating `selectedAgentId` filtering from `AgentContext` to `DashboardPage` and `ChainOfThoughtPage`, ensuring the SSE streaming hooks correctly filter live OTLP and AIS data based on the active agent. Updated the `README.md` to comprehensively detail the MVP's structure and testing requirements, explicitly noting architectural gaps such as the lack of OTel telemetry aggregation and security event persistence in the Oracle backend.
-11. **UI Layout and Legacy Aesthetic Integration (2026-07-15)**: 
+1. **Notion-style block & widget dashboard.** `DashboardPage.tsx` is a
+   drag-and-drop grid (`react-grid-layout`). Toggle "Edit Layout" to drag
+   widgets by their grab handle and resize them.
+   - `WidgetRegistry.tsx` maps widget types (`gauge`, `throughput`,
+     `latency`, `nodes`, `events`, `radar`, `notes`) to real components.
+   - `WidgetWrapper.tsx` provides the common panel chrome — drag handle,
+     delete/duplicate menu.
+   - Layout and widget list persist to `localStorage`, with a "Reset"
+     button to restore the defaults.
+2. **The build was broken; it isn't anymore.** A missing `return`, two
+   imports pointing at nothing, and unused-variable lint errors were
+   blocking `npm run build`/`npm run lint`. Fixed, plus two shared
+   components (`src/shared/{Panel,StatusBadge}.tsx`) that were imported
+   but never written. Verified via Playwright: all 16 routes render with
+   zero console errors.
+3. **Wallet/data infrastructure.** `wagmi` + `viem` +
+   `@tanstack/react-query` power a real `ConnectWalletButton` (injected
+   wallets only, no RainbowKit). `src/services/oracle.ts`/`userapi.ts` are
+   typed `fetch` clients checked field-for-field against
+   `spec/ais-api/v1/openapi.yaml`. Every agent-attributable on-chain write
+   goes through one shared helper, `useSovereignAgentWrite`, which wraps
+   `SovereignAgent.execute(target, 0, calldata)` — the same pattern
+   `integrity_sdk/markets.py`'s `_execute_via_agent` uses. `scripts/
+   sync_abis.py` now also emits trimmed ABIs into `src/abis/` and copies
+   `deployments.*.json` into `src/deployments/`.
+4. **Real reads, verified against a live stack** (real anvil + real
+   `cargo run` oracle-backend + real registered test agents — not assumed
+   from response shape alone):
+   - `AgentContext` — was 3 hardcoded fake agents, now `oracle.listAgents()`
+   - `AgentsPage` — real DID/tier/AIS/created_at
+   - `IntelligencePage` — real leaderboard via `oracle.getLeaderboard()`
+   - `IdentityPage` — real DID + ITK balance/open-positions via `oracle.getWallet()`
+   - `ExchangePage` — real `oracle.listMarkets()` for the Active Markets list
+   - `FinancePage` — real ITK balance, transaction history, and allowances
+   - `DashboardPage` — real AIS distribution + high-integrity %, live-updated over SSE
+
+   Confirmed end-to-end via Playwright: a real agent DID registered
+   through `integrity-cli` appears verbatim in the rendered page, sourced
+   from a captured real network response — not just "the build compiles."
+5. **Honest labeling for what's still simulated.** A new
+   `src/shared/SeededDataBadge.tsx` marks every page with no real backing
+   yet: `ChainOfThoughtPage`, `SdkTelemetryPage`, `CognitionPage`,
+   `CompareTracesPage`, `DocumentsPage`, `ShieldPage`, most of
+   `ContractsPage` (the compile/deploy flow is a labeled sandbox, not a
+   real compiler), parts of `ExchangePage` (the order-book UI —
+   `IntegrityMarket` is a pari-mutuel pool, so there's no honest order
+   book to show), `FinancePage`'s treasury stats, `ActuarialHub`, parts of
+   `DashboardPage`'s widget grid, and several `SettingsPage` panels.
+6. **Mock-data seeding, done right.** `scripts/seed_mock_data.py`
+   registers real test agents (and one real market) through
+   `integrity_sdk`, the same way a real agent would register — not a
+   "write fake rows into Postgres" script. Gated by `MOCK=true`. Runs
+   outside the browser, since it needs the funder's private key.
+   `VITE_MOCK_MODE` is read-only in the UI — it just reports whether the
+   build is pointed at a seeded stack; it can't seed anything itself.
+7. **Wallet-interactive writes, for real (2026-07-12).**
+   - `ExchangePage`'s "Place Order" does a real two-transaction
+     `approve` + `enterPosition` flow, gated on the connected wallet
+     matching the agent's on-chain controller.
+   - `ShieldPage`'s Smart BAA registry reads real `SmartBAAFactory
+     .BAACreated` event logs and wires real `sign()`/`revoke()` writes.
+   - `ClaimAgentModal` was rewritten, not patched: the old "claim via
+     signature challenge" premise had no on-chain support at all — it
+     submitted a transaction using ERC-20 `approve`'s selector as if it
+     were a claim call, silently swallowing the failure. The new "Verify
+     Agent Control" modal does something real: resolves the on-chain
+     controller, compares it to the connected wallet, and has the user
+     `personal_sign` a "prove you hold this key" confirmation.
+
+   All three write paths verified against real anvil + oracle: a real
+   `enterPosition` transaction moved a market's `outcome_staked` from 0 to
+   a real non-zero value.
+8. **userapi auth, tests, and docs (2026-07-12).** `SettingsPage`'s
+   login/register/API-key management verified end-to-end via Playwright
+   against a real running `integrity-userapi` + isolated Postgres. New
+   test infrastructure: 9 vitest unit tests (client request shapes, hook
+   logic, context behavior) and 18 Playwright e2e tests (all 16 routes,
+   zero console errors, a real-network-response assertion), both run
+   against a real backend+chain. `README.md` rewritten from the default
+   Vite scaffold into real project docs.
+9. **UI validation and agent selection (2026-07-14).** Fixed strict
+   TypeScript errors in `DashboardPage.tsx`/`FinancePage.tsx` that were
+   blocking `npm run build`. Propagated `selectedAgentId` from
+   `AgentContext` into `DashboardPage`/`ChainOfThoughtPage`, so the SSE
+   hooks correctly filter live OTLP/AIS data to the active agent.
+10. **UI layout and legacy aesthetic integration (2026-07-15).**
     - `AgentsPage`: Extracted the `ClaimAgentModal` and `AgentOnboarding` workflows from isolated modals into prominent inline dashboard cards above the agents grid, significantly improving discoverability of the onboarding pipeline.
     - `IdentityPage`: Fundamentally refactored to replicate the core layout and aesthetics of the legacy `integrity-dashboard` codebase. Replaced giant glassmorphism panels with a compact Agent Status Strip (DID, AIS, Tier, TEE), a dedicated Hero Bar, and a sub-navigation tab interface sorting components into `Identity & DID`, `Enclave & Security`, `Economic Capacity`, and `Credentials`. 
     - `XNS`: Fully wired the `XNSSearchService` into the Identity page's UI layout.

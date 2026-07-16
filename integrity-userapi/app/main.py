@@ -18,12 +18,14 @@ from uuid import UUID
 
 from app import db, oracle_client
 from app.config import Settings, settings as default_settings
-from app.deps import get_current_user_id, get_pool, get_settings
+from app.deps import get_current_token, get_current_user_id, get_pool, get_settings
+from app.login_limiter import LoginRateLimiter
 from app.schemas import (
     AddAgentRequest,
     ApiKeyCreateResponse,
     ApiKeyResponse,
     DemoRunResponse,
+    DemoRunUpdateRequest,
     LoginRequest,
     OwnedAgentResponse,
     RegisterRequest,
@@ -31,6 +33,7 @@ from app.schemas import (
     UserResponse,
 )
 from app.security import (
+    DecodedToken,
     create_access_token,
     generate_api_key,
     hash_password,
@@ -49,6 +52,13 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Process-local state, same accepted single-process tradeoff as
+# bcc_middleware's AgentCircuitBreaker (see app/login_limiter.py docstring).
+login_rate_limiter = LoginRateLimiter(
+    failure_threshold=default_settings.login_failure_threshold,
+    lockout_duration_seconds=default_settings.login_lockout_duration_seconds,
 )
 
 
@@ -109,16 +119,52 @@ async def login(
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    if login_rate_limiter.is_locked_out(body.email):
+        remaining = int(login_rate_limiter.lockout_remaining_seconds(body.email))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"too many failed login attempts, try again in {remaining}s",
+            headers={"Retry-After": str(remaining)},
+        )
+
     row = await pool.fetchrow(
         "SELECT id, hashed_password FROM users WHERE email = $1", body.email
     )
     if row is None or not verify_password(body.password, row["hashed_password"]):
+        login_rate_limiter.record_failure(body.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password"
         )
 
+    login_rate_limiter.record_success(body.email)
     token = create_access_token(user_id=str(row["id"]), settings=settings)
     return TokenResponse(access_token=token)
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    token: DecodedToken = Depends(get_current_token),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> None:
+    """Revokes the presented bearer token immediately -- see
+    `revoked_tokens` (migrations/0002_jwt_revocation.sql) and
+    `get_current_token`'s revocation check. Opportunistically sweeps
+    already-expired revocation rows first, so this table stays bounded by
+    "revoked tokens still inside their own exp window" without needing a
+    separate cleanup job."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("DELETE FROM revoked_tokens WHERE expires_at < now()")
+            await conn.execute(
+                """
+                INSERT INTO revoked_tokens (jti, user_id, expires_at)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (jti) DO NOTHING
+                """,
+                UUID(token.jti),
+                UUID(token.user_id),
+                token.expires_at,
+            )
 
 
 @app.get("/me", response_model=UserResponse)
@@ -137,6 +183,14 @@ async def me(
 
 
 # --- API keys -----------------------------------------------------------------
+#
+# Minting and revoking a key are deliberately JWT-only (`get_current_token`,
+# not `get_current_user_id`) even though API keys now authenticate most of
+# this service (see app/deps.py). A `uak_...` key is meant for long-lived
+# programmatic/agent use, not account-security management -- if it were
+# allowed to mint further keys, a single leaked key could perpetuate itself
+# past its own revocation. Listing keys stays open to either credential
+# (read-only, no privilege-escalation risk).
 
 
 @app.post(
@@ -145,7 +199,7 @@ async def me(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_api_key(
-    user_id: str = Depends(get_current_user_id),
+    token: DecodedToken = Depends(get_current_token),
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
 ) -> ApiKeyCreateResponse:
@@ -156,7 +210,7 @@ async def create_api_key(
         VALUES ($1, $2, $3)
         RETURNING id, created_at
         """,
-        UUID(user_id),
+        UUID(token.user_id),
         key_hash,
         settings.default_api_key_trust_ceiling,
     )
@@ -186,7 +240,7 @@ async def list_api_keys(
 @app.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_api_key(
     key_id: UUID,
-    user_id: str = Depends(get_current_user_id),
+    token: DecodedToken = Depends(get_current_token),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> None:
     result = await pool.execute(
@@ -195,7 +249,7 @@ async def revoke_api_key(
         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
         """,
         key_id,
-        UUID(user_id),
+        UUID(token.user_id),
     )
     # asyncpg's execute() returns a tag string like "UPDATE 0" / "UPDATE 1".
     if result == "UPDATE 0":
@@ -295,3 +349,37 @@ async def list_demo_runs(
         UUID(user_id),
     )
     return [DemoRunResponse(**dict(row)) for row in rows]
+
+
+@app.patch("/demo/runs/{run_id}", response_model=DemoRunResponse)
+async def update_demo_run(
+    run_id: UUID,
+    body: DemoRunUpdateRequest,
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> DemoRunResponse:
+    """The completion-callback side of the demo_runs bridge: an actual
+    executor (integrity-mvp/demo's scenario engine, see its `main.py`
+    module docstring) reports real status/result transitions back here.
+    `finished_at` is stamped only on a terminal status (completed/failed);
+    it stays null while transitioning through 'running'. Scoped to the
+    owning user's own run, same ownership check as every other /demo/*
+    and /api-keys/* mutation in this file -- a 404 (not 403) on mismatch
+    or unknown id, so this endpoint doesn't leak which run ids exist for
+    other users."""
+    finished_at_clause = "now()" if body.status in ("completed", "failed") else "finished_at"
+    row = await pool.fetchrow(
+        f"""
+        UPDATE demo_runs
+        SET status = $1, result_summary = $2, finished_at = {finished_at_clause}
+        WHERE id = $3 AND user_id = $4
+        RETURNING id, status, started_at, finished_at, result_summary
+        """,
+        body.status,
+        body.result_summary,
+        run_id,
+        UUID(user_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="demo run not found")
+    return DemoRunResponse(**dict(row))

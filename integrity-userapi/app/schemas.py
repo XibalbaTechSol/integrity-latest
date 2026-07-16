@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # --- Auth ---------------------------------------------------------------
@@ -77,3 +77,24 @@ class DemoRunResponse(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     result_summary: dict[str, Any] | None
+
+
+_DEMO_RUN_UPDATE_STATUSES = {"running", "completed", "failed"}
+
+
+class DemoRunUpdateRequest(BaseModel):
+    """The completion-callback shape a demo-run executor (e.g.
+    `integrity-mvp/demo`) reports back through -- see PATCH /demo/runs/{id}.
+    `status` is deliberately restricted to non-initial states: a run is
+    always created as 'pending' by POST /demo/run itself, never set back to
+    it here."""
+
+    status: str = Field(..., description="one of: running, completed, failed")
+    result_summary: dict[str, Any] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_is_a_valid_transition(cls, value: str) -> str:
+        if value not in _DEMO_RUN_UPDATE_STATUSES:
+            raise ValueError(f"status must be one of {sorted(_DEMO_RUN_UPDATE_STATUSES)}, got {value!r}")
+        return value

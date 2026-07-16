@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -72,6 +73,22 @@ class Settings:
     # (bootstrapped by contracts/script/Deploy.s.sol), no longer a §6 gap.
     baa_contract_name: str = field(default_factory=lambda: os.getenv("BAA_CONTRACT_NAME", "SmartBAAFactory"))
     baa_check_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("BAA_CHECK_TIMEOUT_SECONDS", "5.0")))
+
+    # --- Verification token (app/verification_token.py) ---
+    # HMAC key for `POST /v1/bcc/intercept`'s `verification_token`. Unlike
+    # the chain signer keys above, this doesn't custody real value -- it's
+    # what makes the token an unforgeable (rather than trivially
+    # recomputable-by-anyone) proof that THIS process actually evaluated and
+    # approved a specific commitment, checkable later via
+    # `POST /v1/bcc/verify_token` (PRODUCTION_GAPS.md §5). If unset, a random
+    # secret is generated per-process-start: tokens are short-lived
+    # "did this service just approve this" proofs, not long-term credentials,
+    # so not surviving a restart is an accepted tradeoff (same in-memory,
+    # single-process posture as nonce_store.py / circuit_breaker.py) -- set
+    # this explicitly only if tokens need to remain verifiable across restarts.
+    bcc_verification_secret: str = field(
+        default_factory=lambda: os.getenv("BCC_VERIFICATION_SECRET") or secrets.token_hex(32)
+    )
 
     # --- Merkle anchoring ---
     # NOTE: StateAnchor is now a PER-AGENT primitive, not a global singleton, so

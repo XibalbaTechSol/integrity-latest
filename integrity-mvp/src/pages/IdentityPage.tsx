@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TopBar } from '../components/TopBar';
-import { ShieldCheck, Key, Shield, Globe, X, Database, Copy, UserCheck, Fingerprint, User } from 'lucide-react';
+import { ShieldCheck, Key, Shield, Globe, X, Database, Copy, UserCheck, User } from 'lucide-react';
 import { NotionDatabase } from '../components/NotionDatabase';
 import { ClaimAgentModal } from '../components/ClaimAgentModal';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -273,7 +273,12 @@ export const IdentityPage = () => {
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>PCR1 (Kernel Hash)</div>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9rem', color: '#60a5fa', wordBreak: 'break-all' }}>8d743a129d20c5411df83e5c92842b10...</div>
                     </div>
-                    <button className="btn btn-secondary mt-6" style={{ padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center' }}>
+                    <button
+                      className="btn btn-secondary mt-6"
+                      style={{ padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center', opacity: 0.5, cursor: 'not-allowed' }}
+                      disabled
+                      title="integrity-sdk's NitroAttestationGenerator explicitly raises NotImplementedError rather than faking a document (see security/attestation.py) -- there is no real attestation document to regenerate yet."
+                    >
                       Regenerate Attestation Document
                     </button>
                   </div>
@@ -303,8 +308,22 @@ export const IdentityPage = () => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '16px', marginTop: '16px' }}>
-                      <button className="btn btn-primary" style={{ flex: 1, padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center' }}>Stake ITK</button>
-                      <button className="btn btn-secondary" style={{ flex: 1, padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center' }}>Withdraw</button>
+                      <button
+                        className="btn btn-primary"
+                        style={{ flex: 1, padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center', opacity: 0.5, cursor: 'not-allowed' }}
+                        disabled
+                        title="Slasher.sol has real stake()/unstake() entrypoints, but this dashboard doesn't sync the Slasher ABI or resolve the agent's Slasher clone address yet -- not wired to a real transaction."
+                      >
+                        Stake ITK
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ flex: 1, padding: '16px', fontSize: '1rem', fontWeight: 600, justifyContent: 'center', opacity: 0.5, cursor: 'not-allowed' }}
+                        disabled
+                        title="Slasher.sol has real stake()/unstake() entrypoints, but this dashboard doesn't sync the Slasher ABI or resolve the agent's Slasher clone address yet -- not wired to a real transaction."
+                      >
+                        Withdraw
+                      </button>
                     </div>
                   </div>
                 </Panel>

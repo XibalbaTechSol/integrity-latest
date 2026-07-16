@@ -1,9 +1,10 @@
-import { FileText, Database, Network, RefreshCw, Layers, UploadCloud } from 'lucide-react';
+import { FileText, Database, Network, RefreshCw, Layers, UploadCloud, AlertTriangle } from 'lucide-react';
 import { TopBar } from '../components/TopBar';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useMemo } from 'react';
 import { NotionDatabase } from '../components/NotionDatabase';
 import { createColumnHelper } from '@tanstack/react-table';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
 
 const SYNC_DATA = [
   { day: 'Mon', chunks: 1200 },
@@ -71,12 +72,32 @@ export const DocumentsPage = () => {
   return (
     <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
       <TopBar title="Encrypted Document Vault">
-        <button className="btn btn-secondary glass-panel-hover" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          className="btn btn-secondary glass-panel-hover"
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5, cursor: 'not-allowed' }}
+          disabled
+          title="No document/RAG-indexing backend exists yet (see PRODUCTION_GAPS.md §7) -- there is nowhere for an uploaded file to go."
+        >
           <UploadCloud size={16} /> Upload Document
         </button>
       </TopBar>
 
       <div className="page-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="card" style={{ flexShrink: 0, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px', padding: '16px 20px', borderLeft: '4px solid var(--warning)' }}>
+          <AlertTriangle size={24} color="var(--warning)" style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Not yet implemented</h3>
+              <SeededDataBadge label="No backend exists" />
+            </div>
+            <p style={{ margin: '6px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+              There is no document ingestion / vector-DB / RAG-indexing service anywhere in this
+              monorepo yet -- every number and row below is fabricated for this demo, not a
+              capability that exists today. See PRODUCTION_GAPS.md §7.
+            </p>
+          </div>
+        </div>
+
         <div className="grid grid-3 mb-6" style={{ flexShrink: 0 }}>
           <div className="card glass-panel">
             <div className="card-header">

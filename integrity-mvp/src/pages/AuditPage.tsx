@@ -3,6 +3,7 @@ import { ShieldAlert, CheckCircle, XCircle, CodeSquare, AlertCircle, Clock } fro
 import { useLogger } from '../contexts/LoggerContext';
 import { TopBar } from '../components/TopBar';
 import { NotionDatabase } from '../components/NotionDatabase';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { createColumnHelper } from '@tanstack/react-table';
 
 export const AuditPage = () => {
@@ -65,21 +66,26 @@ export const AuditPage = () => {
           <div style={{ padding: '16px', background: 'rgba(16, 185, 129, 0.15)', borderRadius: '50%', color: 'var(--success)' }}>
             <ShieldAlert size={32} />
           </div>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Immutable ZK Logging Active</h3>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Immutable ZK Logging</h3>
+              <SeededDataBadge label="Simulated event feed" />
+            </div>
             <p style={{ margin: '8px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
-              All actions intercepted by the BCC Middleware are cryptographically hashed and anchored to Base L2. 
-              <br/>These logs cannot be tampered with by the agent, host, or hypervisor. Showing {logs.length} total logs.
+              The BCC Middleware DOES batch approved intents into a Merkle tree and anchor each agent's
+              root on-chain (best-effort, not yet on every single event) -- but the {logs.length} entries below are a
+              simulated local event feed for this demo session, not a query against that real audit trail.
+              <br/>No backend endpoint to list past intercept decisions exists yet; see PRODUCTION_GAPS.md.
             </p>
           </div>
         </div>
 
         <div style={{ flex: 1, minHeight: 0 }}>
-          <NotionDatabase 
-            data={logs} 
-            columns={columns} 
-            title="Real-Time Event Stream" 
-            readOnly={true} 
+          <NotionDatabase
+            data={logs}
+            columns={columns}
+            title="Simulated Event Stream"
+            readOnly={true}
           />
         </div>
       </div>

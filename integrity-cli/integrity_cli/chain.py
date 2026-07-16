@@ -158,7 +158,7 @@ def mint_testnet_itk(
 
 
 def deploy_sovereign_agent(
-    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int
+    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int, nonce: Optional[int] = None
 ) -> str:
     """
     The agent's own wallet directly deploys its SovereignAgent identity
@@ -168,10 +168,11 @@ def deploy_sovereign_agent(
     Returns the deployed contract's checksummed address.
     """
     factory = _contract(w3, "SovereignAgent")
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.constructor(did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000").build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
@@ -181,7 +182,7 @@ def deploy_sovereign_agent(
     return receipt.contractAddress
 
 
-def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, chain_id: int) -> str:
+def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, chain_id: int, nonce: Optional[int] = None) -> str:
     """
     The agent's own wallet directly deploys its StateAnchor instance, with
     `admin` set to the just-deployed SovereignAgent contract address (not
@@ -191,10 +192,11 @@ def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: 
     `SovereignAgent.execute`.
     """
     factory = _contract(w3, "StateAnchor")
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.constructor(Web3.to_checksum_address(sovereign_agent_address)).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
@@ -211,6 +213,7 @@ def grant_anchor_role(
     state_anchor_address: str,
     oracle_signer: str,
     chain_id: int,
+    nonce: Optional[int] = None,
 ) -> str:
     """
     Grants the protocol's oracle signer ANCHOR_ROLE on this agent's own
@@ -226,12 +229,13 @@ def grant_anchor_role(
     )["data"]
 
     sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = sovereign_agent.functions.execute(
         Web3.to_checksum_address(state_anchor_address), 0, grant_calldata
     ).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
@@ -266,6 +270,7 @@ def register_primitives(
     vertical: int,
     profile_uri: str,
     chain_id: int,
+    nonce: Optional[int] = None,
 ) -> PrimitivesRegistered:
     """
     Calls `AgentPrimitivesFactory.registerPrimitives`, the step that clones
@@ -280,6 +285,7 @@ def register_primitives(
     authoritative source for what the factory actually deployed.
     """
     factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.functions.registerPrimitives(
         Web3.to_checksum_address(sovereign_agent_address),
         Web3.to_checksum_address(state_anchor_address),
@@ -290,7 +296,7 @@ def register_primitives(
     ).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )

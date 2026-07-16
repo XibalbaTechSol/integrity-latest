@@ -6,6 +6,8 @@ import { useAgent } from '../contexts/AgentContext';
 import { oracle, type TransactionDto } from '../services/oracle';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { useAccount } from 'wagmi';
+import { activeChain } from '../chain/wagmi';
 
 // Mock data for wallet
 const ASSETS = [
@@ -41,6 +43,8 @@ const ALLOWANCES = [
 export const FinancePage = () => {
   const [activeTab, setActiveTab] = useState<'wallet' | 'markets' | 'stability'>('wallet');
   const { selectedAgent } = useAgent();
+  const { address } = useAccount();
+  const explorerUrl = activeChain.blockExplorers?.default.url;
   const [itkBalance, setItkBalance] = useState<string | null>(null);
   const [transactions, setTransactions] = useState(TRANSACTIONS);
   const [allowances, setAllowances] = useState(ALLOWANCES);
@@ -150,13 +154,17 @@ export const FinancePage = () => {
               {/* ACTION BUTTONS */}
               <div style={{ display: 'flex', gap: '24px' }}>
                 {[
-                  { icon: <ArrowDownToLine size={20} />, label: 'Receive', color: 'var(--accent-primary)' },
-                  { icon: <Send size={20} />, label: 'Send', color: 'var(--text-primary)' },
-                  { icon: <Repeat size={20} />, label: 'Swap', color: 'var(--text-primary)' },
-                  { icon: <Plus size={20} />, label: 'Buy', color: 'var(--text-primary)' },
+                  { icon: <ArrowDownToLine size={20} />, label: 'Receive', color: 'var(--accent-primary)', reason: 'No wallet-address / QR display is wired yet.' },
+                  { icon: <Send size={20} />, label: 'Send', color: 'var(--text-primary)', reason: 'No real transfer transaction is wired yet.' },
+                  { icon: <Repeat size={20} />, label: 'Swap', color: 'var(--text-primary)', reason: 'No DEX/swap integration exists anywhere in this stack.' },
+                  { icon: <Plus size={20} />, label: 'Buy', color: 'var(--text-primary)', reason: 'No fiat on-ramp integration exists anywhere in this stack.' },
                 ].map((action, i) => (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '24px', background: action.color === 'var(--accent-primary)' ? 'var(--accent-primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: action.color === 'var(--accent-primary)' ? '#000' : 'var(--text-primary)', transition: 'transform 0.2s', ...{ ':hover': { transform: 'scale(1.05)' } } as any }}>
+                  <div
+                    key={i}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'not-allowed', opacity: 0.5 }}
+                    title={`Not yet implemented: ${action.reason}`}
+                  >
+                    <div style={{ width: '48px', height: '48px', borderRadius: '24px', background: action.color === 'var(--accent-primary)' ? 'var(--accent-primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: action.color === 'var(--accent-primary)' ? '#000' : 'var(--text-primary)' }}>
                       {action.icon}
                     </div>
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>{action.label}</span>
@@ -227,7 +235,15 @@ export const FinancePage = () => {
                       </div>
                     ))}
                   </div>
-                  <button className="btn btn-outline" style={{ width: '100%', marginTop: '16px', fontSize: '13px' }}>View Explorer</button>
+                  <button
+                    className="btn btn-outline"
+                    style={{ width: '100%', marginTop: '16px', fontSize: '13px' }}
+                    disabled={!explorerUrl || !address}
+                    onClick={() => explorerUrl && address && window.open(`${explorerUrl}/address/${address}`, '_blank', 'noopener,noreferrer')}
+                    title={!address ? 'Connect a wallet first' : !explorerUrl ? `No block explorer configured for ${activeChain.name}` : `Open ${activeChain.name} explorer for ${address}`}
+                  >
+                    View Explorer
+                  </button>
                 </div>
               </div>
 
@@ -280,7 +296,12 @@ export const FinancePage = () => {
                     })}
                   </div>
 
-                  <button className="btn btn-secondary" style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: 0.5, cursor: 'not-allowed' }}
+                    disabled
+                    title="OPA policies (bcc_middleware/policies/*.rego) are static files today, not dynamically editable via a UI -- there is no backend to create a new allowance rule against."
+                  >
                     <Plus size={16} /> New Allowance Rule
                   </button>
                 </div>

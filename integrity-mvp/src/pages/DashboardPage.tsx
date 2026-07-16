@@ -44,7 +44,12 @@ const DEFAULT_WIDGETS = [
 
 const DEFAULT_LAYOUTS = {
   lg: [
-    { i: 'tri-metric', x: 0, y: 0, w: 12, h: 2, minW: 6, minH: 2 },
+    // h bumped 2 -> 3 (rowHeight=150, so 450px) -- at h:2 the widget's real
+    // content (KaTeX formula + real value + label, now that fabricated
+    // sparklines are gone) was clipped by the grid cell boundary. The rest
+    // of the grid reflows automatically underneath (react-grid-layout's
+    // default vertical compaction), no other entry's y needed adjusting.
+    { i: 'tri-metric', x: 0, y: 0, w: 12, h: 3, minW: 6, minH: 3 },
     { i: 'gauge', x: 0, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
     { i: 'costAnalytics', x: 3, y: 2, w: 6, h: 2, minW: 4, minH: 2 },
     { i: 'latency', x: 9, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
@@ -52,7 +57,7 @@ const DEFAULT_LAYOUTS = {
     { i: 'events', x: 6, y: 4, w: 6, h: 2, minW: 4, minH: 2 }
   ],
   md: [
-    { i: 'tri-metric', x: 0, y: 0, w: 10, h: 2, minW: 6, minH: 2 },
+    { i: 'tri-metric', x: 0, y: 0, w: 10, h: 3, minW: 6, minH: 3 },
     { i: 'gauge', x: 0, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
     { i: 'costAnalytics', x: 4, y: 2, w: 6, h: 2, minW: 3, minH: 2 },
     { i: 'latency', x: 0, y: 4, w: 4, h: 2, minW: 3, minH: 2 },

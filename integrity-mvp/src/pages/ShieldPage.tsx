@@ -9,7 +9,7 @@ import { getPublicClient, readContract, writeContract, waitForTransactionReceipt
 import { parseAbiItem, formatUnits, encodeFunctionData } from 'viem';
 import { useAgent } from '../contexts/AgentContext';
 import { useToast } from '../contexts/ToastContext';
-import { oracle } from '../services/oracle';
+import { oracle, type AisResponse } from '../services/oracle';
 import { wagmiConfig } from '../chain/wagmi';
 import { abis } from '../chain/abis';
 import { singleton } from '../chain/deployments';
@@ -141,6 +141,38 @@ export const ShieldPage = () => {
 
   useEffect(() => { loadBaas(); }, [loadBaas]);
 
+  // PRODUCTION_GAPS.md §7: "Stability Certification" tab used to be 100%
+  // hardcoded (AAA / 99.9% / 82.4% / 1.8x) despite this same page already
+  // proving the real oracle+on-chain-read pattern (loadBaas above). Wired
+  // to real data where it actually exists: AIS score for the tier, and the
+  // real `baas` array (fetched above) for the compliance ratio. "Prediction
+  // Accuracy (Markets)" and "Collateral Health Factor" have NO real backend
+  // source anywhere in this monorepo (no market-prediction-scoring endpoint,
+  // no Slasher stake data wired to the frontend) -- rendered as an honest
+  // "not available" state below instead of a fabricated number.
+  const [ais, setAis] = useState<AisResponse | null>(null);
+  const [aisError, setAisError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedAgent) { setAis(null); return; }
+    let cancelled = false;
+    setAisError(null);
+    oracle.getAis(selectedAgent.id)
+      .then((res) => { if (!cancelled) setAis(res); })
+      .catch((e) => { if (!cancelled) setAisError(e instanceof Error ? e.message : 'Failed to fetch AIS'); });
+    return () => { cancelled = true; };
+  }, [selectedAgent]);
+
+  function stabilityTier(score: number): { label: string; color: string } {
+    if (score >= 900) return { label: 'AAA', color: 'var(--success)' };
+    if (score >= 700) return { label: 'A', color: 'var(--success)' };
+    if (score >= 500) return { label: 'B', color: 'var(--warning)' };
+    return { label: 'C', color: 'var(--danger)' };
+  }
+
+  const activeBaaCount = baas.filter((b) => b.status === 1).length;
+  const baaComplianceRatio = baas.length > 0 ? (activeBaaCount / baas.length) * 100 : null;
+
   const isBusinessAssociate = useCallback((sovereignAgent: string) => {
     // A signable/revocable BAA still requires the connected EOA to be the
     // agent's controller (execute() is onlyController) — this is a display
@@ -205,17 +237,30 @@ export const ShieldPage = () => {
     { id: 'viol_01', time: '2026-06-25 02:02:11', agent: 'Xibalba Master Agent', baaId: 'baa_contract_02', type: 'unauthorized_phi_query', detail: 'Attempted to query out-of-bounds EHR record without active BAA consent approval signature.', status: 'pending' }
   ]);
 
+  // Both handlers below operate on the hardcoded `consents`/`violations` seed
+  // arrays above (SeededDataBadge-marked), not real data, and make NO
+  // contract call -- EHRGate.grantAccess/revokeAccess are PATIENT-signed
+  // (not this dashboard operator's wallet), and a real slash requires the
+  // Slasher contract's arbiter role after a full dispute/challenge window
+  // (see contracts/src/oracle/Slasher.sol's NatSpec) -- neither maps to a
+  // button an arbitrary connected wallet on this page could honestly
+  // trigger for real. Previously these showed a real-looking, undisclosed
+  // "successfully updated"/"confirmed... Slashed" alert implying a genuine
+  // on-chain state change had occurred; PRODUCTION_GAPS.md §7 flagged this
+  // as a false claim. Now explicitly disclosed via the same addToast(...)
+  // path the REAL wagmi-backed BAA sign/revoke handlers above use, instead
+  // of a jarring, differently-styled browser alert() that read as more
+  // "real" than the toasted success messages next to it.
   const handleToggleConsent = (id: string, action: 'Authorized' | 'Revoked') => {
-    // Simulating WebAuthn passkey delay
     setTimeout(() => {
       setConsents(prev => prev.map(c => c.id === id ? { ...c, status: action, lastUpdated: new Date().toISOString().replace('T', ' ').substring(0, 16) } : c));
-      alert(`EHR Gate successfully updated to: ${action} via simulated Passkey Signature.`);
+      addToast('info', `Simulated only: EHR Gate would be ${action.toLowerCase()} via the patient's own signature. No transaction was sent.`);
     }, 500);
   };
 
   const handleSlashViolation = (id: string) => {
     setViolations(prev => prev.map(v => v.id === id ? { ...v, status: 'slashed' } : v));
-    alert('HIPAA Violation confirmed: Locked ITK Stake Slashed.');
+    addToast('info', 'Simulated only: a real slash requires the Slasher contract\'s arbiter role after a dispute window. No transaction was sent.');
   };
 
   const CONSENT_COLUMNS: ColumnDef<any>[] = [
@@ -304,52 +349,66 @@ export const ShieldPage = () => {
           {activeTab === 'Stability Certification' && (
             <div className="grid grid-2" style={{ gap: '24px' }}>
               <div className="card col-span-2">
-                <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}><Award size={18} color="var(--warning)"/> Agent Stability Profile <SeededDataBadge /></h2>
-                
+                <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}>
+                  <Award size={18} color="var(--warning)"/> Agent Stability Profile
+                  {!selectedAgent && <SeededDataBadge label="Select an agent for real data" />}
+                </h2>
+
+                {!selectedAgent ? (
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '24px', textAlign: 'center' }}>Select an agent to see its real stability profile.</div>
+                ) : aisError ? (
+                  <div style={{ color: 'var(--danger)', fontSize: '0.85rem', padding: '24px', textAlign: 'center' }}>Could not fetch AIS: {aisError}</div>
+                ) : (
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                  
-                  {/* Tier Badge */}
+
+                  {/* Tier Badge -- derived from the real AIS score */}
                   <div style={{ flex: '1 1 30%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current Stability Tier</div>
-                    <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(16,185,129,0.2) 0%, transparent 70%)', border: '2px solid var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(16,185,129,0.1)' }}>
-                      <span style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--success)', textShadow: '0 0 10px rgba(16,185,129,0.5)' }}>AAA</span>
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--success)', textAlign: 'center' }}>Low Risk • Reduced Collateral Requirements</div>
+                    {ais ? (
+                      <>
+                        {(() => { const tier = stabilityTier(ais.ais); return (
+                          <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `radial-gradient(circle, ${tier.color}33 0%, transparent 70%)`, border: `2px solid ${tier.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 20px ${tier.color}1a` }}>
+                            <span style={{ fontSize: '2.5rem', fontWeight: 800, color: tier.color, textShadow: `0 0 10px ${tier.color}80` }}>{tier.label}</span>
+                          </div>
+                        ); })()}
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center' }}>Real AIS: {ais.ais.toFixed(1)} / 1000</div>
+                      </>
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading…</div>
+                    )}
                   </div>
 
                   {/* Health Factors */}
                   <div style={{ flex: '1 1 60%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    
+
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
                         <span style={{ color: 'var(--text-primary)' }}>BAA Compliance Ratio</span>
-                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>99.9%</span>
+                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>
+                          {baaComplianceRatio !== null ? `${baaComplianceRatio.toFixed(1)}% (${activeBaaCount}/${baas.length} active)` : 'No BAAs yet'}
+                        </span>
                       </div>
                       <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '99.9%', height: '100%', background: 'var(--success)' }}></div>
+                        <div style={{ width: `${baaComplianceRatio ?? 0}%`, height: '100%', background: 'var(--success)' }}></div>
                       </div>
                     </div>
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
                         <span style={{ color: 'var(--text-primary)' }}>Prediction Accuracy (Markets)</span>
-                        <span style={{ color: 'var(--warning)', fontWeight: 700 }}>82.4%</span>
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 700, fontStyle: 'italic' }}>Not available</span>
                       </div>
-                      <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '82.4%', height: '100%', background: 'var(--warning)' }}></div>
-                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No market-prediction-scoring endpoint exists anywhere in this monorepo yet.</div>
                     </div>
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
                         <span style={{ color: 'var(--text-primary)' }}>Collateral Health Factor</span>
-                        <span style={{ color: 'var(--success)', fontWeight: 700 }}>1.8x</span>
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 700, fontStyle: 'italic' }}>Not available</span>
                       </div>
-                      <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: '90%', height: '100%', background: 'var(--success)' }}></div>
-                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Slasher.sol's real stakeOf/lockedStakeOf aren't wired to this frontend yet.</div>
                     </div>
-                    
+
                     <div style={{ marginTop: '16px', padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-color)' }}>
                       <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                         <strong>Note:</strong> Agents maintaining AAA tier receive a 50% reduction in required ITK collateral for new Smart BAAs and Escrow pools. A single slashing event will downgrade the agent to B Tier.
@@ -358,6 +417,7 @@ export const ShieldPage = () => {
 
                   </div>
                 </div>
+                )}
               </div>
             </div>
           )}

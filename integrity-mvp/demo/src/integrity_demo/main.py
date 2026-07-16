@@ -17,6 +17,7 @@ from integrity_sdk.markets import enter_prediction, allocate_capital
 from integrity_sdk.chain import load_deployments
 
 from integrity_demo.agent_loop import IntegrityAgent
+from integrity_demo import userapi_bridge
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("integrity_demo.main")
@@ -31,16 +32,30 @@ tracer = trace.get_tracer(__name__)
 
 def main():
     logger.info("Initializing Integrity Demo Scenario Engine")
-    
+    # No-op unless USERAPI_URL/USERAPI_TOKEN/USERAPI_RUN_ID are all set (see
+    # userapi_bridge.py's module docstring) -- lets an operator tie this run
+    # back to a demo_runs row created via POST /demo/run beforehand.
+    userapi_bridge.report_status("running")
+
+    try:
+        summary = _run_scenario()
+    except Exception as exc:
+        userapi_bridge.report_status("failed", {"error": str(exc)})
+        raise
+    else:
+        userapi_bridge.report_status("completed", summary)
+
+
+def _run_scenario() -> dict:
     agents = [
         {"id": "healthcare_agent", "vertical": "healthcare"},
         {"id": "prediction_market_agent", "vertical": "prediction_market"},
         {"id": "trading_agent", "vertical": "trading"},
         {"id": "capital_allocation_agent", "vertical": "capital_allocation"},
     ]
-    
+
     agent_data = {}
-    
+
     with tracer.start_as_current_span("register_agents"):
         for a in agents:
             # Register or load existing
@@ -122,6 +137,15 @@ def main():
                 target_addr = target["registration"].sovereign_agent
                 response = agent.run_conversation(f"Please allocate capital to the trading agent. Their address is: {target_addr}")
                 logger.info(f"Agent Final Response: {response}")
+
+    return {
+        "agents_attempted": len(agents),
+        "agents_registered": sorted(agent_data.keys()),
+        "sovereign_agent_addresses": {
+            agent_id: data["registration"].sovereign_agent for agent_id, data in agent_data.items()
+        },
+    }
+
 
 if __name__ == "__main__":
     main()

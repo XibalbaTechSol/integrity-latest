@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     # assumption, not something re-derived from a live source in this repo).
     default_api_key_trust_ceiling: int = 300
 
+    # --- Login rate-limiting (app/login_limiter.py) ---
+    # Same defaults as bcc_middleware's circuit_breaker for agent misbehavior
+    # (violation_threshold=3, lockout=900s) are deliberately NOT reused here --
+    # a login form has a much higher legitimate-typo rate than a signed agent
+    # commitment, so a stricter/shorter threshold would lock out real users
+    # over routine mistakes.
+    login_failure_threshold: int = 5
+    login_lockout_duration_seconds: int = 300
+
     # --- App ---
     app_name: str = "integrity-userapi"
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Save, Folder, File, Cpu, ShieldCheck, Code, ChevronRight, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { Terminal, Save, Folder, File, Cpu, ShieldCheck, Code, ChevronRight, ChevronDown, Plus, Trash2, X, Play } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { TopBar } from '../components/TopBar';
 import { oracle } from '../services/oracle';
@@ -19,6 +19,10 @@ export const ContractsPage = () => {
   const [agentAis, setAgentAis] = useState<any | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
 
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [deployedContracts, setDeployedContracts] = useState<{name: string, address: string}[]>([]);
+  const [rightPanelTab, setRightPanelTab] = useState<'agent' | 'deployed'>('agent');
+
   const [logs, setLogs] = useState<string[]>([
     '[system] Legacy IDE Interface loaded.',
     '[system] Connected to Xibalba Agent Registry.'
@@ -31,6 +35,7 @@ export const ContractsPage = () => {
     // Default to the first contract if available
     if (REAL_FILES.length > 0) {
       setActiveContract({ id: REAL_FILES[0].name, name: REAL_FILES[0].name });
+      setOpenTabs([REAL_FILES[0].name]);
     }
   }, []);
 
@@ -67,7 +72,43 @@ export const ContractsPage = () => {
 
   const handleSelectContract = (name: string) => {
     setActiveContract({ id: name, name });
+    if (!openTabs.includes(name)) {
+      setOpenTabs([...openTabs, name]);
+    }
     appendLog(`[system] Opened contract ${name}`);
+  };
+
+  const handleCloseTab = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newTabs = openTabs.filter(t => t !== name);
+    setOpenTabs(newTabs);
+    if (activeContract?.id === name) {
+      if (newTabs.length > 0) {
+        setActiveContract({ id: newTabs[newTabs.length - 1], name: newTabs[newTabs.length - 1] });
+      } else {
+        setActiveContract(null);
+      }
+    }
+  };
+
+  const handleBuild = () => {
+    if (!activeContract) return;
+    appendLog(`[build] Compiling ${activeContract.name}...`);
+    setTimeout(() => appendLog(`[build] Parsing AST for ${activeContract.name}...`), 600);
+    setTimeout(() => appendLog(`[build] Generating bytecode and ABI...`), 1200);
+    setTimeout(() => appendLog(`[success] Compilation successful!`), 1800);
+  };
+
+  const handleDeploy = () => {
+    if (!activeContract) return;
+    appendLog(`[deploy] Deploying ${activeContract.name} to Base Sepolia...`);
+    setTimeout(() => appendLog(`[system] Awaiting confirmation...`), 800);
+    setTimeout(() => {
+      const mockAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0');
+      appendLog(`[success] ${activeContract.name} deployed at ${mockAddress}`);
+      setDeployedContracts(prev => [...prev, { name: activeContract.name, address: mockAddress }]);
+      setRightPanelTab('deployed');
+    }, 2000);
   };
 
   const getContractCode = (name: string) => {
@@ -122,10 +163,10 @@ export const ContractsPage = () => {
           <button className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => appendLog('State saved locally.')}>
             <Save size={14} /> Save
           </button>
-          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--accent-primary)', color: 'var(--bg-main)', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => appendLog('[build] Compiling contracts...')}>
+          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--accent-primary)', color: 'var(--bg-main)', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={handleBuild}>
             <Cpu size={14} /> Build
           </button>
-          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--gold)', color: 'black', border: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }} onClick={() => appendLog('[deploy] Deploying to Base...')}>
+          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--gold)', color: 'black', border: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }} onClick={handleDeploy}>
             <ShieldCheck size={14} /> Deploy
           </button>
         </div>
@@ -232,10 +273,31 @@ export const ContractsPage = () => {
 
         {/* Center Panel - Editor */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-main)', minHeight: 0 }}>
-          <div style={{ display: 'flex', backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-main)', color: 'var(--accent-primary)', fontSize: '13px', borderTop: '2px solid var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <File size={14} /> {activeContract?.name || 'No file selected'}
-            </div>
+          <div style={{ display: 'flex', backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)', overflowX: 'auto' }}>
+            {openTabs.map(tab => (
+              <div 
+                key={tab}
+                onClick={() => handleSelectContract(tab)}
+                style={{ 
+                  padding: '8px 16px', 
+                  backgroundColor: activeContract?.id === tab ? 'var(--bg-main)' : 'transparent', 
+                  color: activeContract?.id === tab ? 'var(--accent-primary)' : 'var(--text-muted)', 
+                  fontSize: '13px', 
+                  borderTop: activeContract?.id === tab ? '2px solid var(--accent-primary)' : '2px solid transparent', 
+                  borderRight: '1px solid var(--border-color)',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                <File size={14} /> {tab}
+                <X size={14} style={{ opacity: 0.6, cursor: 'pointer' }} onClick={(e) => handleCloseTab(tab, e)} onMouseEnter={(e) => e.currentTarget.style.opacity = '1'} onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'} />
+              </div>
+            ))}
+            {openTabs.length === 0 && (
+              <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: '13px' }}>No open files</div>
+            )}
           </div>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {activeContract ? (
@@ -246,7 +308,7 @@ export const ContractsPage = () => {
                 value={getContractCode(activeContract.id)}
                 onChange={handleEditorChange}
                 options={{
-                  minimap: { enabled: false },
+                  minimap: { enabled: true },
                   fontSize: 14,
                   fontFamily: 'inherit',
                   scrollBeyondLastLine: false,
@@ -264,13 +326,21 @@ export const ContractsPage = () => {
         {/* Right Panel - Context/Agent Details */}
         <div style={{ width: '380px', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-sidebar)', borderLeft: '1px solid var(--border-color)', minHeight: 0 }}>
           <div style={{ display: 'flex', backgroundColor: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)' }}>
-            <div style={{ padding: '8px 16px', backgroundColor: 'var(--bg-main)', color: 'var(--primary)', fontSize: '13px', borderTop: '2px solid var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Cpu size={14} /> {activeAgent?.name || 'Inspector'}
+            <div 
+              onClick={() => setRightPanelTab('agent')}
+              style={{ flex: 1, cursor: 'pointer', padding: '8px 16px', backgroundColor: rightPanelTab === 'agent' ? 'var(--bg-main)' : 'transparent', color: rightPanelTab === 'agent' ? 'var(--primary)' : 'var(--text-muted)', fontSize: '13px', borderTop: rightPanelTab === 'agent' ? '2px solid var(--primary)' : '2px solid transparent', borderRight: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+              <Cpu size={14} /> Inspector
+            </div>
+            <div 
+              onClick={() => setRightPanelTab('deployed')}
+              style={{ flex: 1, cursor: 'pointer', padding: '8px 16px', backgroundColor: rightPanelTab === 'deployed' ? 'var(--bg-main)' : 'transparent', color: rightPanelTab === 'deployed' ? 'var(--primary)' : 'var(--text-muted)', fontSize: '13px', borderTop: rightPanelTab === 'deployed' ? '2px solid var(--primary)' : '2px solid transparent', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+              <Play size={14} /> Deployed
             </div>
           </div>
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            {activeAgent ? (
-              <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
+            {rightPanelTab === 'agent' ? (
+              activeAgent ? (
+                <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
                 <div style={{ marginBottom: '16px', color: '#569cd6' }}>
                   <ShieldCheck style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} size={16} />
                   // AgentPrimitivesFactory: 7 Primitive Contract Statuses
@@ -328,6 +398,45 @@ export const ContractsPage = () => {
             ) : (
               <div style={{ padding: '24px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
                 Select an agent from the workspace to inspect its on-chain primitives and telemetry profile.
+              </div>
+            )
+          ) : (
+              <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
+                <div style={{ marginBottom: '16px', color: '#569cd6' }}>
+                  <Play style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} size={16} />
+                  // Deployed Contracts (Local Base Sepolia Fork)
+                </div>
+                {deployedContracts.length > 0 ? deployedContracts.map((contract, i) => (
+                  <div key={i} style={{ marginBottom: '16px', padding: '12px', border: '1px solid #333', borderRadius: '4px', backgroundColor: '#252526' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ color: '#4ec9b0', fontWeight: 'bold' }}>{contract.name}</span>
+                      <span style={{ color: '#ce9178' }}>{contract.address.substring(0,8)}...{contract.address.substring(38)}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                      {(() => {
+                        const matches = getContractCode(contract.name).match(/function\s+([a-zA-Z0-9_]+)/g);
+                        if (matches && matches.length > 0) {
+                          return matches.slice(0, 6).map((m, j) => (
+                            <button key={j} className="btn btn-secondary" style={{ flex: '1 1 45%', padding: '4px 8px', fontSize: '12px', border: '1px solid #444', backgroundColor: '#333', color: '#d4d4d4', overflow: 'hidden', textOverflow: 'ellipsis' }} onClick={() => appendLog(`[system] Transaction: ${m.replace('function ', '')}() on ${contract.name}`)}>
+                              {m.replace('function ', '')}
+                            </button>
+                          ));
+                        } else {
+                          return (
+                            <button className="btn btn-secondary" style={{ flex: 1, padding: '4px 8px', fontSize: '12px', border: '1px solid #444', backgroundColor: '#333', color: '#d4d4d4' }} onClick={() => appendLog(`[system] Interactive ABI for ${contract.name} called.`)}>
+                              Interact
+                            </button>
+                          );
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )) : (
+                  <div style={{ color: '#808080' }}>
+                    No contracts deployed in this session.<br/><br/>
+                    Open a contract in the editor and click "Deploy" to simulate deployment.
+                  </div>
+                )}
               </div>
             )}
           </div>

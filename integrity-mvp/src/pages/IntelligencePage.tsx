@@ -103,16 +103,12 @@ const StatCard = ({ label, value, icon, accent = 'var(--accent-primary)' }: Stat
   </div>
 );
 
-const radarData = [
-  { subject: 'ZK Proving Speed', A: 120, B: 110, fullMark: 150 },
-  { subject: 'BCC Compliance', A: 148, B: 130, fullMark: 150 },
-  { subject: 'On-Chain Settlement', A: 86, B: 130, fullMark: 150 },
-  { subject: 'Intent Drift', A: 12, B: 45, fullMark: 150 },
-  { subject: 'Enclave Uptime', A: 149, B: 140, fullMark: 150 },
-  { subject: 'Policy Latency', A: 65, B: 85, fullMark: 150 },
-  { subject: 'Gas Efficiency', A: 110, B: 90, fullMark: 150 },
-  { subject: 'Agent Integrity Score', A: 140, B: 120, fullMark: 150 },
-];
+const AIS_COMPONENT_LABELS: Record<string, string> = {
+  entropy: 'Entropy',
+  grounding: 'Grounding',
+  sacrifice: 'Sacrifice',
+  compliance: 'Compliance',
+};
 
 export const IntelligencePage = () => {
   const [showTelemetry, setShowTelemetry] = useState(true);
@@ -122,6 +118,15 @@ export const IntelligencePage = () => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntryDto[]>([]);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+
+  // PRODUCTION_GAPS.md §7: this radar used to plot 8 fabricated dimensions
+  // ("ZK Proving Speed", "Gas Efficiency", ...) for two fake named agents.
+  // Real AIS components (entropy/grounding/sacrifice/compliance,
+  // oracle.getAis()) were already being fetched elsewhere in the app --
+  // wired here for the top 2 real leaderboard agents instead.
+  const [radarData, setRadarData] = useState<{ subject: string; A: number; B: number }[]>([]);
+  const [radarLabels, setRadarLabels] = useState<{ left: string; right: string } | null>(null);
+  const [radarError, setRadarError] = useState<string | null>(null);
 
   // Real SSE stream (all agents) — see backend/src/stream.rs.
   const { events: liveEvents, connected: streamConnected } = useOracleStream(undefined, 40);
@@ -134,6 +139,31 @@ export const IntelligencePage = () => {
       .finally(() => { if (!cancelled) setLeaderboardLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (leaderboard.length < 2) {
+      setRadarData([]);
+      setRadarLabels(null);
+      return;
+    }
+    let cancelled = false;
+    const left = leaderboard[0];
+    const right = leaderboard[1];
+    setRadarError(null);
+    Promise.all([oracle.getAis(left.agent_id), oracle.getAis(right.agent_id)])
+      .then(([leftAis, rightAis]) => {
+        if (cancelled) return;
+        const subjects = Object.keys(leftAis.components) as (keyof typeof leftAis.components)[];
+        setRadarData(subjects.map((key) => ({
+          subject: AIS_COMPONENT_LABELS[key] ?? key,
+          A: leftAis.components[key],
+          B: rightAis.components[key],
+        })));
+        setRadarLabels({ left: left.agent_id.slice(-8), right: right.agent_id.slice(-8) });
+      })
+      .catch((e) => { if (!cancelled) setRadarError(e instanceof Error ? e.message : 'Failed to fetch AIS components'); });
+    return () => { cancelled = true; };
+  }, [leaderboard]);
 
   const [isAddTelemetryOpen, setIsAddTelemetryOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
@@ -260,7 +290,7 @@ export const IntelligencePage = () => {
             <Trophy size={18} /> REPUTATION LEADERBOARD <LiveBadge />
           </h2>
           {leaderboardError && (
-            <div style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>
+            <div style={{ color: 'var(--danger)', fontSize: '0.8rem', wordBreak: 'break-word' }}>
               Could not reach the Integrity Oracle ({leaderboardError}).
             </div>
           )}
@@ -297,24 +327,35 @@ export const IntelligencePage = () => {
           ))}
         </div>
 
-        {/* ── Interactive Radar Section (simulated — see PRODUCTION_GAPS.md's WSS/TSDB gaps) ── */}
+        {/* ── Interactive Radar Section: real AIS components for the top 2 leaderboard agents ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 450px), 1fr))', gap: '24px' }}>
           {showRadar && (
             <div className="card" style={{ flex: '1 1 60%' }}>
               <h2 className="card-title" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Brain size={18} /> MULTI-DIMENSIONAL INTEGRITY RADAR <SeededDataBadge />
+                <Brain size={18} /> MULTI-DIMENSIONAL INTEGRITY RADAR
+                {!radarLabels && !radarError && <SeededDataBadge label="Needs 2+ leaderboard agents" />}
               </h2>
               <div style={{ height: '300px' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                    <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
-                    <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
-                    <Radar name="Agent Alpha" dataKey="A" stroke="var(--accent-primary)" fill="var(--accent-primary)" fillOpacity={0.3} />
-                    <Radar name="Agent Beta" dataKey="B" stroke="var(--warning)" fill="var(--warning)" fillOpacity={0.3} />
-                    <Legend wrapperStyle={{ fontSize: '12px', color: 'var(--text-primary)' }} />
-                  </RadarChart>
-                </ResponsiveContainer>
+                {radarError ? (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+                    Could not fetch AIS components: {radarError}
+                  </div>
+                ) : !radarLabels ? (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+                    Needs at least 2 agents on the leaderboard to compare real AIS components.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                      <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 1000]} tick={false} axisLine={false} />
+                      <Radar name={`Agent …${radarLabels.left}`} dataKey="A" stroke="var(--accent-primary)" fill="var(--accent-primary)" fillOpacity={0.3} />
+                      <Radar name={`Agent …${radarLabels.right}`} dataKey="B" stroke="var(--warning)" fill="var(--warning)" fillOpacity={0.3} />
+                      <Legend wrapperStyle={{ fontSize: '12px', color: 'var(--text-primary)' }} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           )}

@@ -1,4 +1,4 @@
-import { Users, Activity, ShieldCheck, Database, Link, X, Terminal } from 'lucide-react';
+import { Users, Activity, ShieldCheck, Database, Link, Terminal } from 'lucide-react';
 import { TopBar } from '../components/TopBar';
 import { useState, useMemo, useEffect } from 'react';
 import { NotionDatabase } from '../components/NotionDatabase';

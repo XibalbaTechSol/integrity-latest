@@ -24,7 +24,6 @@ on the failure category.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -39,10 +38,11 @@ from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher
 from app.nonce_store import NonceStore
 from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
-from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse
+from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse, VerifyTokenRequest, VerifyTokenResponse
 from app import anchor as anchor_module
 from app import opa_client
 from app import scoring_loop as scoring_loop_module
+from app import verification_token as verification_token_module
 
 logger = logging.getLogger("bcc_middleware")
 
@@ -165,13 +165,14 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # `min_tier_by_intent_type` against -- see chain.resolve_verification_tier's
     # docstring for why an unresolvable tier fails to 0 rather than failing the
     # whole request closed.
+    verification_tier = await asyncio.to_thread(resolve_verification_tier, commitment.agent_id, oracle_url=settings.oracle_url)
     opa_input = {
         "agent_id": commitment.agent_id,
         "intent_type": commitment.intent_type,
         "intended_state_hash": commitment.intended_state_hash,
         "nonce": commitment.nonce,
         "timestamp": commitment.timestamp,
-        "verification_tier": resolve_verification_tier(commitment.agent_id, oracle_url=settings.oracle_url),
+        "verification_tier": verification_tier,
     }
     try:
         decision = await opa_evaluate(settings, opa_input)
@@ -195,7 +196,7 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # unset here, check_baa_status fails closed with CANNOT_VERIFY rather
     # than guessing or skipping the check.
     if decision.requires_baa:
-        status, detail = check_baa_status(settings, agent_id, commitment.covered_entity_address)
+        status, detail = await asyncio.to_thread(check_baa_status, settings, agent_id, commitment.covered_entity_address)
         if status is not BAAStatus.ACTIVE:
             # Both "definitively inactive" and "cannot verify" deny -- an
             # unverifiable BAA must never be treated as compliant.
@@ -205,10 +206,11 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
 
     # --- 7. Approved: admit to the merkle batch, issue a verification token ---
     batch_index = batcher.add(commitment)
-    _flush_and_anchor(settings)
+    await asyncio.to_thread(_flush_and_anchor, settings)
 
-    token_material = f"{commitment.agent_id}|{commitment.nonce}|{commitment.intended_state_hash}|{time.time()}"
-    token = hashlib.sha256(token_material.encode()).hexdigest()
+    token = verification_token_module.issue_token(
+        settings, commitment.agent_id, commitment.nonce, commitment.intended_state_hash
+    )
     return BCCInterceptResponse(authorized=True, verification_token=token, batch_index=batch_index)
 
 
@@ -242,6 +244,19 @@ async def force_score_sync() -> dict:
     }
 
 
+@app.post("/v1/bcc/verify_token", response_model=VerifyTokenResponse)
+async def verify_token(request: VerifyTokenRequest) -> VerifyTokenResponse:
+    """
+    Lets a relying party (not just the agent that received the token) ask
+    this service whether `token` was genuinely issued for exactly the given
+    (agent_id, nonce, intended_state_hash) -- see app/verification_token.py.
+    """
+    valid = verification_token_module.verify_token(
+        default_settings, request.token, request.agent_id, request.nonce, request.intended_state_hash
+    )
+    return VerifyTokenResponse(valid=valid)
+
+
 @app.post("/v1/bcc/anchor/flush")
 async def force_flush() -> dict:
     """
@@ -253,15 +268,24 @@ async def force_flush() -> dict:
     flushed = batcher.flush()
     if flushed is None:
         return {"flushed": False, "detail": "no pending commitments"}
-    root, leaves = flushed
+    _discarded_full_batch_root, leaves = flushed
     # Per-agent anchoring: one StateAnchor tx per distinct agent in the batch.
+    # NOTE: no single "root" field here anymore -- anchoring is per-agent
+    # (see anchor.py), so the full-batch root above matches nothing that was
+    # actually submitted on-chain. Each agent's OWN sub-root (the thing that
+    # really got anchored, or attempted) is under `agents[agent_id].root`
+    # instead (PRODUCTION_GAPS.md §5).
     results = anchor_module.anchor_batch_per_agent(default_settings, leaves)
     return {
         "flushed": True,
-        "root": f"0x{root.hex()}",
         "leaf_count": len(leaves),
         "agents": {
-            agent_id: {"anchored": r.submitted, "detail": r.detail, "tx_hash": r.tx_hash}
+            agent_id: {
+                "anchored": r.submitted,
+                "detail": r.detail,
+                "tx_hash": r.tx_hash,
+                "root": f"0x{r.root.hex()}" if r.root is not None else None,
+            }
             for agent_id, r in results.items()
         },
     }

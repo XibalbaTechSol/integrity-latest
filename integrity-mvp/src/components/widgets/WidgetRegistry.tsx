@@ -3,7 +3,7 @@ import { Activity, ShieldCheck, Zap, FileText, Server, Radar } from 'lucide-reac
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar as RechartsRadar } from 'recharts';
 
 import { SeededDataBadge } from '../../shared/SeededDataBadge';
-import { oracle } from '../../services/oracle';
+import { oracle, type AisComponents } from '../../services/oracle';
 import { useOracleStream } from '../../hooks/useOracleStream';
 import { useAgent } from '../../contexts/AgentContext';
 
@@ -21,11 +21,6 @@ const LATENCY_DATA = [
   { node: 'ap-south', latency: 85 },
   { node: 'us-west', latency: 55 },
   { node: 'sa-east', latency: 190 }
-];
-
-const RADAR_DATA = [
-  { subject: 'ZKP Performance', A: 120, B: 110, fullMark: 150 },
-  { subject: 'Attestation Speed', A: 98, B: 130, fullMark: 150 }
 ];
 
 const COST_DATA = [
@@ -198,6 +193,79 @@ const NotesWidget: React.FC<WidgetProps> = () => {
   );
 };
 
+const AIS_COMPONENT_LABELS: Record<string, string> = {
+  entropy: 'Entropy',
+  grounding: 'Grounding',
+  sacrifice: 'Sacrifice',
+  compliance: 'Compliance',
+};
+
+// PRODUCTION_GAPS.md §7: this widget used to plot two fixed subject lists
+// ("ZKP Performance"/"Attestation Speed") with hardcoded A/B values that
+// matched nothing real -- oracle.getAis() (real S_entropy/S_grounding/
+// S_sacrifice/S_compliance components, 0-1000 scale, see scoring-core) was
+// already being fetched by sibling widgets/pages, just never wired here.
+const RadarWidget: React.FC<WidgetProps> = () => {
+  const { selectedAgent } = useAgent();
+  const [components, setComponents] = React.useState<AisComponents | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!selectedAgent) {
+      setComponents(null);
+      return;
+    }
+    setLoading(true);
+    oracle.getAis(selectedAgent.id)
+      .then((res) => setComponents(res.components))
+      .catch(() => setComponents(null))
+      .finally(() => setLoading(false));
+  }, [selectedAgent]);
+
+  const radarData = components
+    ? Object.entries(components).map(([key, value]) => ({
+        subject: AIS_COMPONENT_LABELS[key] ?? key,
+        A: value,
+        B: 1000,
+      }))
+    : [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
+        <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          Integrity Radar {!selectedAgent && <SeededDataBadge label="Select an agent for real data" />}
+        </h3>
+        <Radar size={18} className="text-muted" />
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {!selectedAgent ? (
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+            Select an agent to see its real AIS component breakdown.
+          </div>
+        ) : !loading && !components ? (
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', padding: '0 16px' }}>
+            No AIS data available for this agent yet.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+              <PolarGrid stroke="rgba(255,255,255,0.05)" />
+              <PolarAngleAxis dataKey="subject" stroke="var(--text-muted)" fontSize={9} />
+              <PolarRadiusAxis angle={30} domain={[0, 1000]} stroke="var(--text-muted)" fontSize={8} />
+              <RechartsRadar name="Current" dataKey="A" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.2} />
+              <RechartsRadar name="Max (1000)" dataKey="B" stroke="var(--gold)" fill="var(--gold)" fillOpacity={0.1} />
+              <Tooltip
+                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const WidgetRegistry: Record<string, {
   name: string;
   description: string;
@@ -206,8 +274,8 @@ export const WidgetRegistry: Record<string, {
 }> = {
   'tri-metric': {
     name: 'Tri-Metric Risk Analysis',
-    description: 'Displays the three cornerstone risk metrics in LaTeX.',
-    defaultSize: { w: 10, h: 2 },
+    description: 'Real network-wide AIS deficit and BCC violation rate averaged across every registered agent; collateral-at-risk honestly marked unavailable (no risk model exists yet).',
+    defaultSize: { w: 10, h: 3 },
     component: TriMetricWidget
   },
   gauge: {
@@ -349,32 +417,9 @@ export const WidgetRegistry: Record<string, {
   },
   radar: {
     name: 'Attestation Integrity Radar',
-    description: 'Multi-dimensional analysis of agent attestation features.',
+    description: 'Real per-agent AIS component breakdown (entropy/grounding/sacrifice/compliance) vs. max.',
     defaultSize: { w: 4, h: 2 },
-    component: () => (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}>
-          <h3 className="card-title" style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Integrity Radar <SeededDataBadge />
-          </h3>
-          <Radar size={18} className="text-muted" />
-        </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={RADAR_DATA}>
-              <PolarGrid stroke="rgba(255,255,255,0.05)" />
-              <PolarAngleAxis dataKey="subject" stroke="var(--text-muted)" fontSize={9} />
-              <PolarRadiusAxis angle={30} domain={[0, 150]} stroke="var(--text-muted)" fontSize={8} />
-              <RechartsRadar name="Current Attested" dataKey="A" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.2} />
-              <RechartsRadar name="Target SLA" dataKey="B" stroke="var(--gold)" fill="var(--gold)" fillOpacity={0.1} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px', zIndex: 1000 }}
-              />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    )
+    component: RadarWidget
   },
   notes: {
     name: 'Dashboard Notes',

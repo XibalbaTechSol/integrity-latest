@@ -132,17 +132,76 @@ Optional args to `flush_telemetry(zk_proof=, compliance_gate_address=, covered_e
 
 `POST /v1/telemetry/ingest` runs a fixed, ordered sequence — cheapest/most-certain-to-reject-fast first, matching this monorepo's general pipeline-ordering convention (same shape as `bcc_middleware`'s `run_intercept`):
 
-1. **PHI/PII/secret backstop** (`phi::scan_json_value`, `phi.rs`) — scans every JSON string leaf in `otel_spans` plus the optional `judge_evaluation` for a raw, unredacted pattern (mirrors `Redactor`'s categories in Rust `regex` syntax). Any hit → `400 PhiDetected` immediately, **before any DB or RPC work** — a malformed/bypassed-redaction payload fails as fast as possible. This runs unconditionally regardless of the SDK's `redact_phi` setting (§2) — it's the real backstop for that flag defaulting to `False`.
-2. **Agent lookup** (`db::get_agent`) — `404 AgentNotFound` if `agent_id` isn't registered.
-3. **Rate limit** (`check_telemetry_rate_limit`) — a Redis fixed-window counter, `INCR ratelimit:telemetry:{agent_id}:{unix_minute}` with a 60s expiry set on first increment of a window. `429` over `telemetry_rate_limit_per_minute` (config). A fixed window, not a token bucket — the accepted tradeoff is bursting up to 2× the limit at a window boundary, in exchange for not needing token-bucket state.
-4. **Signature verification** (`crypto::verify_agent_signature`) — rebuilds the exact `signable` object (§6) from the typed request struct (everything except `signature` and `judge_evaluation`), canonicalizes it the same way, and checks against the agent's stored `ed25519_pubkey` **or** `eth_address` (both verification methods are supported — see `AgentVerificationMethods`). `401` on failure.
-5. **Server-side signal re-derivation** (`derive::recompute`, `backend/src/derive.rs`) — runs immediately after signature verification (so an unauthenticated request never triggers this work) and before the ZK check. Independently recomputes entropy/grounding/sacrifice from `otel_spans`' raw content — full detail and trust-model rationale: [AIS](ais.md). Compliance is derived separately (`oracle_compliance`, below) since it needs live chain access the pure-function `derive::recompute` doesn't have.
-6. **ZK proof check** — if `zk_proof` is present, `state.zk.verify(circuit_id, proof_bytes, public_inputs_bytes)` against the real Barretenberg verifier (see [ZKP](zkp.md)); absent → `zk_verified = false`, not an error.
-7. **Compliance derivation** (`oracle_compliance`) — mirrors `derive.py::derive_compliance`'s "on-chain wins" logic, but runs **unconditionally** here rather than as an SDK-side opt-in a caller could forget to pass. Falls back to the self-reported flagged-ratio whenever the agent's primitives aren't cached, no `covered_entity_address` was supplied in `otel_spans`' metadata, or the chain read fails — never errors, since this computes a scoring input, not a security gate ([ComplianceGate](compliance-gate.md) remains the real, fail-closed PHI-access enforcement point).
-8. **Merkle leaf hash** — `keccak256` over `telemetry_leaf_data(agent_id, nonce, payload_hash)` (see [Merkle Batching](merkle-batching.md) for the hashing convention). Stored on the row; **actual on-chain anchoring of this leaf happens out-of-band**, per-agent, in `bcc_middleware/app/anchor.py` — not via a root assigned back onto this row by the oracle itself.
-9. **Nonce replay check + insert** (`db::insert_telemetry_event`) — inside one transaction: `SELECT last_nonce FROM agents WHERE id = $1 FOR UPDATE` (row lock, so two concurrent flushes for the same agent can't both pass the check against a stale value), then `nonce <= last_nonce` → `409` (`InsertTelemetryError::NonceReplay`) before any insert. Otherwise inserts into `telemetry_events` with the **oracle's own recomputed** `performance_variance` (polarity-corrected: `1.0 - recompute.entropy`, see [AIS](ais.md) for why), `hgi_raw` (= recomputed grounding), `gpu_hours_verified` (= recomputed sacrifice, an hours-equivalent proxy — see `derive.rs`'s doc comment for why this differs from the SDK's own `[0,1]`-normalized index), `flagged` (from the oracle-computed compliance, not the client's claim), `zk_verified`, `leaf_hash`, and the full `payload` JSONB (`otel_spans`, both the client's `derived_signals` claim *and* the oracle's `oracle_recomputed_signals`, `zk_proof`).
-10. **Judge evaluation** (optional) — if `judge_evaluation` was present, persisted into `judge_evaluations`, linked via the new event's id. Storage/ingestion plumbing only — no judge/rubric implementation exists in this repo (`[PLANNED]`, see [Observability & PHI Safety](observability-vtl.md)). Deliberately **not** part of the signed envelope, so adding it never requires re-signing.
-11. **Live push** — if `state.telemetry_tx` has any subscribers, a `TelemetryEvent` frame is broadcast over SSE (`GET /v1/stream`), and (best-effort — a send failure just means zero listeners) an up-to-date `AisUpdate` is computed and pushed too, via the same `compute_ais_for_agent` function `GET /v1/agent/{id}/ais` calls directly, so a pushed score can never drift from a direct read.
+1. **PHI/PII/secret backstop** (`phi::scan_json_value`, `phi.rs`). Scans
+   every JSON string in `otel_spans` and the optional `judge_evaluation`
+   for a raw, unredacted pattern — the same categories `Redactor` checks,
+   re-implemented in Rust. Any hit is a `400 PhiDetected`, before any DB or
+   RPC work. This runs **unconditionally**, regardless of the SDK's
+   `redact_phi` setting (§2) — it's the real backstop for that flag
+   defaulting to `False`.
+2. **Agent lookup** (`db::get_agent`). `404 AgentNotFound` if `agent_id`
+   isn't registered.
+3. **Rate limit** (`check_telemetry_rate_limit`). A Redis fixed-window
+   counter (`INCR ratelimit:telemetry:{agent_id}:{unix_minute}`, 60s
+   expiry), `429` over `telemetry_rate_limit_per_minute`. A fixed window,
+   not a token bucket — bursting up to 2× the limit at a window boundary
+   is the accepted tradeoff for not needing token-bucket state.
+4. **Signature verification** (`crypto::verify_agent_signature`). Rebuilds
+   the exact `signable` object (§6) from the typed request, canonicalizes
+   it the same way, and checks it against the agent's stored
+   `ed25519_pubkey` **or** `eth_address` — both are supported. `401` on
+   failure.
+5. **Server-side signal re-derivation** (`derive::recompute`,
+   `backend/src/derive.rs`). Runs right after signature verification (so
+   an unauthenticated request never triggers it) and before the ZK check.
+   Independently recomputes entropy/grounding/sacrifice from `otel_spans`'
+   raw content — full detail and trust-model rationale in [AIS](ais.md).
+   Compliance is derived separately (step 7) since it needs live chain
+   access this pure function doesn't have.
+6. **ZK proof check.** If `zk_proof` is present, verified against the real
+   Barretenberg verifier (see [ZKP](zkp.md)). If absent, `zk_verified =
+   false` — not an error.
+7. **Compliance derivation** (`oracle_compliance`). Mirrors
+   `derive.py::derive_compliance`'s "on-chain wins" logic, but runs
+   **unconditionally** here rather than as an SDK-side opt-in a caller
+   could forget to pass. Falls back to the self-reported flagged ratio
+   whenever the agent's primitives aren't cached, no
+   `covered_entity_address` was supplied, or the chain read fails — never
+   errors, since this feeds a score, not a security gate.
+   [ComplianceGate](compliance-gate.md) remains the real, fail-closed
+   PHI-access enforcement point.
+8. **Merkle leaf hash.** `keccak256` over `telemetry_leaf_data(agent_id,
+   nonce, payload_hash)` (see [Merkle Batching](merkle-batching.md)).
+   Stored on the row. **Actual on-chain anchoring happens separately** —
+   out-of-band, per-agent, in `bcc_middleware/app/anchor.py` — not by the
+   oracle writing a root back onto this row.
+9. **Nonce replay check, then insert** (`db::insert_telemetry_event`), one
+   transaction:
+   - `SELECT last_nonce FROM agents WHERE id = $1 FOR UPDATE` — a row
+     lock, so two concurrent flushes for the same agent can't both pass
+     the check against a stale value.
+   - `nonce <= last_nonce` → `409` before any insert.
+   - Otherwise, insert into `telemetry_events` using the **oracle's own
+     recomputed** values: `performance_variance` (`1.0 - recompute.entropy`
+     — polarity-corrected, see [AIS](ais.md) for why), `hgi_raw` (=
+     recomputed grounding), `gpu_hours_verified` (= recomputed sacrifice,
+     an hours-equivalent proxy — see `derive.rs`'s doc comment), `flagged`
+     (from the oracle-computed compliance, not the client's claim). The
+     full `payload` JSONB keeps both the client's `derived_signals` claim
+     and the oracle's `oracle_recomputed_signals` for audit comparison.
+10. **Judge evaluation** (optional). If `judge_evaluation` was present,
+    it's persisted into `judge_evaluations`, linked to the new event.
+    Storage/ingestion plumbing only — no judge/rubric implementation
+    exists in this repo yet (`[PLANNED]`, see
+    [Observability & PHI Safety](observability-vtl.md)). Deliberately
+    **not** part of the signed envelope, so adding it never requires
+    re-signing.
+11. **Live push.** If `state.telemetry_tx` has subscribers, a
+    `TelemetryEvent` frame broadcasts over SSE (`GET /v1/stream`). An
+    up-to-date `AisUpdate` is pushed too, via the same
+    `compute_ais_for_agent` function `GET /v1/agent/{id}/ais` calls
+    directly — so a pushed score can never drift from a direct read. Both
+    are best-effort: a send failure just means zero listeners.
 
 Response (`TelemetryIngestResponse`): `event_id`, `leaf_hash`, `zk_verified`, `flagged`.
 

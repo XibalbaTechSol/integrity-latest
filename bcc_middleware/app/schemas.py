@@ -105,12 +105,32 @@ class BCCCommitment(BaseModel):
 class BCCInterceptResponse(BaseModel):
     authorized: bool
     reason: str | None = None
-    # Only present when authorized=True: an opaque token proving this
-    # middleware evaluated and approved the commitment, plus which pending
-    # merkle batch slot it landed in (useful for callers to later look up
-    # the anchoring transaction once the batch flushes).
+    # Only present when authorized=True: an HMAC-keyed, persisted token
+    # (see app/verification_token.py) proving THIS middleware evaluated and
+    # approved this exact commitment -- checkable via
+    # POST /v1/bcc/verify_token, unlike the plain-sha256-of-public-fields
+    # value this used to be (PRODUCTION_GAPS.md §5), which anyone could
+    # recompute themselves and nothing ever checked. Also carries which
+    # pending merkle batch slot it landed in (useful for callers to later
+    # look up the anchoring transaction once the batch flushes).
     verification_token: str | None = None
     batch_index: int | None = None
+
+
+class VerifyTokenRequest(BaseModel):
+    """Body for POST /v1/bcc/verify_token -- the caller supplies the token
+    it was given plus the commitment fields it claims that token covers;
+    the response says whether this service actually issued that exact
+    combination (see app/verification_token.py)."""
+
+    token: str
+    agent_id: str
+    nonce: int
+    intended_state_hash: str
+
+
+class VerifyTokenResponse(BaseModel):
+    valid: bool
 
 
 class HealthResponse(BaseModel):

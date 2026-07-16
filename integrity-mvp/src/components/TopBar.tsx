@@ -40,9 +40,9 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
   };
 
   return (
-    <div className="top-bar" style={{ gap: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h1>
+    <div className="top-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', borderBottom: '1px solid var(--border-color)', padding: '16px 24px', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0 }}>
+        <h1 style={{ fontSize: '20px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0 }}>{title}</h1>
         {tabs && (
           <div className="custom-scrollbar" style={{ display: 'flex', gap: '24px', marginLeft: '24px', overflowX: 'auto', paddingBottom: '2px' }}>
             {tabs.map((tab) => (

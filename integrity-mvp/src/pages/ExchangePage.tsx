@@ -269,7 +269,7 @@ export const ExchangePage = () => {
             <div className="card" style={{ flex: 1, overflowY: 'auto' }}>
               <h2 className="panel-title" style={{ marginBottom: '16px' }}>Active Markets</h2>
 
-              {marketsError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>Could not reach the Integrity Oracle ({marketsError}).</div>}
+              {marketsError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', wordBreak: 'break-word' }}>Could not reach the Integrity Oracle ({marketsError}).</div>}
               {!marketsError && marketsLoading && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading...</div>}
               {!marketsError && !marketsLoading && markets.length === 0 && (
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No markets deployed yet.</div>

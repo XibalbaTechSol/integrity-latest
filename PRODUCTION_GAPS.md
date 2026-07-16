@@ -179,57 +179,106 @@ again) — both fixed at the `derive.rs` call site, no `scoring-core` changes ne
   test above. `GET /v1/agents`/`GET /v1/agent/{id}`/history endpoints/single-market
   detail remain untested by e2e — smaller, lower-risk gap, not addressed this pass.
 
-## 3. Python SDK & CLI (`integrity-sdk`, `integrity-cli`)
+## 3. Python SDK & CLI (`integrity-sdk`, `integrity-cli`) — findings from a full-package audit, ALL CLOSED
 
 *Current State:* `integrity-cli` does not import `integrity-sdk` — independent
-reimplementations kept in sync by cross-package tests, not shared code. Findings below
-are from a full-package audit (SDK + CLI test suites passing).
+reimplementations kept in sync by cross-package tests, not shared code. Every finding below
+was fixed AND verified by actually running the resulting test suite against real
+infrastructure (real anvil for chain-touching tests, real HTTP mocks for client-only logic) —
+no fix was accepted on code-review alone. SDK: 122 passed, 1 skipped. CLI: 68 passed, 1
+skipped.
 
-* **Confirmed, unfixed — CLI mints testnet ITK to the agent's wallet, not its
-  SovereignAgent contract.** `integrity-cli/integrity_cli/main.py:328-331` calls
-  `chain.mint_testnet_itk(..., evm_account.address, ...)` *before*
-  `deploy_sovereign_agent` even runs, whereas `integrity-sdk/integrity_sdk/registration.py`
-  was fixed this session to mint to the SovereignAgent *contract* address (required
-  because `IntegrityMarket`/`A2ACapitalPool` pull ITK from `msg.sender`, which is the
-  SovereignAgent contract when routed through `execute`). CLI-registered agents end up
-  with testnet ITK stranded on an address they can't spend through market/capital-pool
-  calls. **Fix:** reorder CLI's registration steps to match the SDK's.
-* **Confirmed, unfixed — registration has no idempotency, in BOTH the SDK and the CLI
-  independently.** `integrity_sdk/registration.py`'s `register_agent()` and
-  `integrity-cli/integrity_cli/chain.py`'s equivalent both always deploy a *fresh*
-  `SovereignAgent`/`StateAnchor` pair rather than checking for an existing registration
-  first — a retry after partial failure (or against an already-registered DID) orphans a
-  contract pair and burns gas/ITK before reverting with `AlreadyRegistered`. Two separate
-  fixes needed (SDK and CLI don't share code).
-* **`EHRGate` ABI missing from `scripts/sync_abis.py` and `integrity-sdk/integrity_sdk/abis/`
-  — zero Python wrapper functions exist anywhere in the SDK for `CoveredEntityRegistry`,
-  `SmartBAAFactory`, `ComplianceGate`, or `EHRGate` calls.** Only the low-level generic
-  `chain._contract()` helper exists to build on. Blocks the Shield/healthcare persona of
-  any future demo work.
-* **Telemetry client nonce handling stalls permanently after a process restart.**
-  `integrity_sdk/integrity_sdk/client.py:69` hardcodes `self._nonce = 0`, never seeded
-  from the oracle's persisted `last_nonce` (exposed at `GET /v1/agent/{id}`). Any restart
-  after even one successful flush causes every subsequent flush to replay the same stale
-  nonce, get a 409, and roll back again — forever. **Fix:** seed `_nonce` from the oracle
-  at construction, and stop treating a 409 (proof the prior nonce *was* consumed) as a
-  reason to roll back.
-* **`security/attestation.py` claims test coverage that doesn't exist.** Its own docstring
-  cites `test_attestation.py` as covering the Nitro attestation verifier against a real
-  captured fixture (`tests/fixtures/aws_nitro_document.cbor`, which IS present and real) —
-  but that test file doesn't exist anywhere in the tree, and the verifier has zero test
-  references. This misrepresents security-critical code (root-CA pinning, cert-chain walk,
-  COSE signature verification) as tested when it isn't — a direct instance of the repo's
-  own "no silent mocks" rule being violated by omission. **Fix:** write the test against
-  the existing fixture; both are ready for it.
-* **Wallet keystore write path is an unguarded, non-atomic, check-then-act race —
-  duplicated in both packages.** `integrity_sdk/wallet.py` and `integrity_cli/wallet.py`
-  both do `.exists()` → generate → `write_text()` with no lock, no atomic rename, and no
-  typed error for a corrupted file (raises a raw `JSONDecodeError`) or a wrong password
-  (raises a raw `ValueError`, and the existing test asserts on that raw type rather than
-  flagging it as wrong). Two concurrent bootstrap calls for the same `agent_id` can each
-  generate a different keypair and race on which one gets persisted, silently orphaning
-  whichever account the losing caller kept in memory. **Fix:** atomic create (`O_EXCL` or
-  a lock) + write-to-temp-then-rename + typed exceptions, in both packages.
+* **CLOSED — CLI minted testnet ITK to the agent's wallet, not its SovereignAgent contract.**
+  Reordered `integrity-cli/integrity_cli/main.py`'s registration steps (funding → deploy
+  SovereignAgent → deploy StateAnchor → mint ITK to the SovereignAgent *contract*, not the
+  wallet → grant anchor role → register primitives), matching `integrity-sdk`'s already-fixed
+  sequence. `integrity-cli/tests/test_chain.py::test_cli_chain_full_registration` now asserts
+  the on-chain ITK balance lands on the contract, not the EOA.
+* **CLOSED — registration had no idempotency, in both SDK and CLI.** `integrity_sdk/chain.py`
+  gained `resolve_did()`, which calls the real `XibalbaAgentRegistry.resolveDID` and — a real
+  bug caught while building this — had to be written to catch the contract's
+  `UnknownDID()` custom-error *revert*, not treat the ABI's `view` mutability as proof it
+  never reverts. `registration.py`'s `register_agent()` now short-circuits to the existing
+  on-chain primitives when the DID already resolves, instead of deploying a second orphaned
+  pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
+  calls `register_agent()` twice for the same identity and asserts both calls return
+  identical primitive addresses.
+* **CLOSED — `EHRGate` ABI + Shield wrapper functions.** `scripts/sync_abis.py` now syncs
+  `EHRGate`; new `integrity_sdk/shield.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
+  `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every
+  agent-routed call. Verified against real anvil-deployed contracts in
+  `tests/test_shield.py`: a full happy path (register covered entity → create BAA → agent
+  signs it → self-declared compliance → patient grants EHR access → AIS pushed above
+  threshold → access check passes → `verifyAndLogAccess` succeeds) plus a negative case
+  proving the on-chain AIS-threshold gate is real, not decorative (access stays denied when
+  the agent's score is left at the registry's zero default despite consent + an active BAA).
+* **CLOSED — telemetry client nonce handling stalled permanently after a process restart.**
+  `client.py`'s `flush_telemetry` now calls a new `_sync_nonce_from_oracle()` (reads
+  `GET /v1/agent/{id}`'s `last_nonce`) before the first flush of a fresh client instance, and
+  a 409 response re-syncs from the oracle instead of blindly rolling back (the old behavior,
+  which just replayed the same already-consumed nonce forever). Verified with 4 new mocked-
+  HTTP unit tests in `tests/unit/test_client.py` covering: first-flush sync, no redundant
+  sync on later flushes, 409 → re-sync (not rollback), and non-409 failure → rollback (still
+  correct for that case, since the oracle never saw that nonce at all).
+* **CLOSED — `security/attestation.py` claimed test coverage that didn't exist.** Wrote
+  `tests/test_attestation.py` against the real captured fixture
+  (`tests/fixtures/aws_nitro_document.cbor`) — signature/chain/root-pin verification,
+  payload field exposure, validity-period enforcement, five independent tamper-detection
+  cases, and malformed-input handling. Running it for the first time surfaced two real,
+  pre-existing bugs in the code under test, both fixed here:
+  1. **The pinned root-CA fingerprint constant was truncated by one hex character** (63
+     chars — an impossible length for a SHA-256 hexdigest, always 64) — every single call to
+     `verify_nitro_attestation` unconditionally raised `AttestationError`, meaning Nitro
+     attestation verification was completely non-functional in production, silently, until
+     this test suite ran it for the first time. The bundled PEM itself is genuine (the real
+     fixture's cert chain validates against it end-to-end once the constant is corrected).
+  2. **A corrupted/tampered certificate could crash the verifier with an unhandled
+     `ValueError`** rather than reporting `chain_valid = False`: `cryptography`'s ASN.1
+     parsing is lazy, so a cert can load successfully yet still raise when a field like
+     `.subject` is read later (exactly what an error-message-formatting f-string did). Added
+     a `_safe_subject_name` helper and wrapped certificate loading in a typed
+     `AttestationError`, so malformed attacker-supplied input degrades to a reported failure
+     instead of an uncaught exception — this is security-critical code processing untrusted
+     input, so a crash there is a real hardening gap, not just a test nuisance.
+* **CLOSED — wallet keystore write path was an unguarded, non-atomic, check-then-act race,
+  duplicated in both packages.** Both `integrity_sdk/wallet.py` and
+  `integrity_cli/wallet.py` now write to a per-call temp file (`O_CREAT | O_EXCL`) and claim
+  the final path via `os.link` (atomic, fails with `FileExistsError` instead of silently
+  overwriting like `os.rename` would) — a losing concurrent caller discards its own generated
+  keypair and loads the winner's instead of orphaning it. Added typed `CorruptedKeystoreError`
+  / `WalletDecryptionError` in place of raw `JSONDecodeError`/`ValueError`. Verified with a
+  race-simulation test in both packages (`test_concurrent_bootstrap_converges_on_one_keypair`,
+  using a monkeypatched `os.open` to inject a second "concurrent" caller mid-write) proving
+  both callers converge on one keypair with no leftover temp files.
+* **NEW CAPABILITY — SDK telemetry integrations widened (operational metadata), plus a real
+  breaking behavior change to redaction defaults.** Following a request to widen what the SDK
+  captures per-call, `integrations/openai_integrity.py` and `integrations/langchain_callback.py`
+  both gained real, previously-uncaptured fields the underlying provider already returns:
+  `model_requested`/`model_actual`, `system_fingerprint`, `service_tier`, `tool_calls` (names
+  only — `function.arguments`/tool `args` are deliberately never captured, since they can carry
+  caller-supplied content that hasn't been through redaction), `conversation_length`, and a
+  previously-nonexistent error path for the OpenAI wrapper (it had zero telemetry on a failed
+  call before this; LangChain's `on_llm_error` already existed) that logs
+  `type(exception).__name__` as a real, provider-native error taxonomy rather than a
+  hand-maintained code mapping. Neither integration had any test coverage before this — both
+  now do (`tests/unit/test_openai_integrity.py`, `tests/unit/test_langchain_callback.py`, 13
+  new tests total, using realistic `SimpleNamespace`/real-`langchain_core`-class fixtures since
+  hitting the real OpenAI/Anthropic APIs isn't feasible in a test run).
+  **Real behavior change, explicitly requested and confirmed:** both integrations' `redact_phi`
+  parameter now defaults to **`False`** (previously, `redact_text()` ran unconditionally on
+  every prompt/completion/reasoning-trace/tool-call string in both files). Per explicit
+  decision: PHI/PII redaction is now opt-in, scoped to Xibalba Shield / healthcare-vertical
+  agents, who **must** pass `redact_phi=True` when constructing `IntegrityOpenAI` /
+  `IntegrityLangChainCallback` — neither wrapper has any way to know an agent's
+  `compliance_vertical` on its own (that's registered separately), so nothing here can safely
+  auto-detect "this needs redaction." Both wrappers log a `logger.warning` naming the agent at
+  construction time whenever `redact_phi` is left at its default `False`, so a misconfigured
+  healthcare deployment is at least loud about it rather than silent — but there is **no
+  runtime enforcement** preventing a healthcare-vertical agent from being built without
+  `redact_phi=True`. This is a real, accepted residual risk from the chosen default, not an
+  oversight: flagged here so it isn't lost track of, and worth a `shield.py`-level guard (e.g.
+  refusing to proceed, or checking `compliance_vertical` against a resolvable registry) as a
+  real follow-up rather than relying on every integrator remembering the flag.
 
 ## 4. Smart Contracts (`contracts/src`) — findings from a full-package audit, ALL CLOSED
 
@@ -290,44 +339,78 @@ removed. Every finding below is fixed and covered by a new regression test.
   the trusted, fixed-address router call preceding it. New test
   `test_bridgeReputation_refundsExcessNativeFee` in `test/CCIPReputationBridge.t.sol`.
 
-## 5. BCC Middleware (`bcc_middleware`) — findings from a full-package audit
+## 5. BCC Middleware (`bcc_middleware`) — findings from a full-package audit, ALL CLOSED
 
-*Current State:* 75 pytest + 28 OPA tests passing. `app/reputation.py`/`scoring_loop.py`
-(the new score-push/dispute signer, see §1a) are real and tested. Findings below are
-beyond that work.
+*Current State:* 91 pytest (75 baseline + 16 new) + 28 OPA tests passing, with `uv run
+pytest -q` (no env overrides) now matching that count exactly. `app/reputation.py`/
+`scoring_loop.py` (the new score-push/dispute signer, see §1a) are real and tested. Every
+finding below was fixed and verified against real infrastructure — real anvil for chain-writing
+tests, real threading for the nonce-race and batcher-concurrency regressions, real HTTP
+round-trips through the actual FastAPI app for the token fix.
 
-* **The intercept hot path blocks the single asyncio event loop on synchronous chain/
-  oracle I/O — systemic, not just anchoring.** `run_intercept` (`main.py`) is `async def`,
-  but `resolve_verification_tier` (plain sync `httpx.get`, fired on every single request),
-  `check_baa_status` (sync web3.py calls), and `_flush_and_anchor` (`w3.eth.wait_for_
-  transaction_receipt(..., timeout=30)`, up to 30s blocking) all run directly on the loop,
-  unlike `_score_sync_loop`, which correctly uses `asyncio.to_thread`. Under real
-  concurrency this head-of-line-blocks every other agent's request (and `/health`) behind
-  whichever one is waiting on an oracle round-trip or an anchor tx receipt — directly
-  contradicting this service's own stated design goal of being a low-latency pre-execution
-  gate. **Fix:** wrap those three calls in `asyncio.to_thread`, same as the scoring loop.
-* **`verification_token` proves nothing and is checked by nobody.** `main.py:210-212`'s
-  token is an unsigned, unpersisted SHA-256 hash — `schemas.py` documents it as "proving
-  this middleware evaluated and approved the commitment," but there's no signature or
-  lookup table any relying party could verify it against. Every consumer found just
-  displays/threads it through. **Fix:** HMAC over a persisted record, or drop the claim
-  from the docs.
-* **Cross-thread signer nonce race between anchoring and reputation sync.** Since
-  `REPUTATION_SIGNER_PRIVATE_KEY` falls back to the same key as anchoring (documented,
-  §1a), `_flush_and_anchor` (running synchronously inside a request-handler thread) and
-  `_score_sync_loop`'s chain writes (running via `asyncio.to_thread` every
-  `SCORE_SYNC_INTERVAL_SECONDS`) can both independently call `get_transaction_count` with
-  no shared nonce manager or lock — an overlapping anchor-flush and scoring-cycle can race
-  into a "nonce too low" failure for one of the two. **Fix:** a shared nonce-managing
-  signer (or lock) whenever `anchor.py` and `reputation.py` share a key.
-* **`POST /v1/bcc/anchor/flush`'s returned `root` doesn't match what's actually anchored.**
-  `MerkleBatcher.flush()`'s full-batch root is computed then discarded in favor of
-  per-agent sub-roots (the real, per-agent anchoring path) — but the endpoint still
-  returns the discarded full-batch root, which matches nothing on-chain. **Fix:** return
-  the per-agent sub-roots that were actually anchored, or drop the field.
-* **Score pushes are unconditional every cycle, even when unchanged** — real gas cost
-  every `SCORE_SYNC_INTERVAL_SECONDS` per agent forever, even idle ones. **Fix:** cache
-  the last-pushed score per agent and skip the tx if unchanged.
+*A second-pass review of these fixes (not the original audit) surfaced three follow-on
+items, all closed in the same pass:*
+* **`MerkleBatcher` wasn't thread-safe.** The hot-path fix below (wrapping
+  `_flush_and_anchor` in `asyncio.to_thread`) made concurrent `add()`/`flush()` access
+  possible for the first time — previously `run_intercept` was single-threaded end-to-end,
+  so this was never reachable. `add`/`flush`/`is_full`/`reset`/`pending_count` are now
+  guarded by a `threading.Lock` held for the full check-then-act sequence. A stress test
+  (many concurrent adders + flushers) is included as regression coverage; note this
+  specific race did NOT reproduce empirically even under aggressive
+  `sys.setswitchinterval` stress testing (unlike the nonce race below, which reproduced
+  reliably) — the fix is based on a direct code-level trace of the unguarded multi-op
+  `batch, self._pending = self._pending, []` swap racing a concurrent `append`/second
+  `flush()`, not on a captured failure. Documented here rather than silently claimed as
+  "proven", per this repo's own rule.
+* **`_issued_tokens` (new in the token fix below) grew unbounded** — one entry per
+  authorized intercept, forever, unlike the agent-count-bounded `nonce_store`/
+  `circuit_breaker`. Capped at 50,000 entries with oldest-first eviction.
+* **Tests silently depended on `CHAIN_ID` being unset.** `_settings()`-style test helpers
+  never passed `chain_id=` explicitly, relying on `Settings`' env-var default — which
+  silently picks up the repo-root `.env`'s `CHAIN_ID=84532` (Base Sepolia) instead of the
+  local anvil fixture's real `31337`, breaking 11 tests for anyone whose shell inherits
+  that file. Fixed at the source: the session-scoped `anvil_chain` fixture now sets
+  `os.environ["CHAIN_ID"]` to the real anvil's chain ID before any test constructs a
+  `Settings()`, rather than requiring ~15 individual call sites across 5 test files to each
+  remember to override it.
+
+* **CLOSED — the intercept hot path blocked the single asyncio event loop on synchronous
+  chain/oracle I/O.** `run_intercept`'s three offending calls (`resolve_verification_tier`,
+  `check_baa_status`, `_flush_and_anchor`) are now wrapped in `asyncio.to_thread`, matching
+  `_score_sync_loop`'s existing pattern — no I/O runs directly on the event loop anymore.
+* **CLOSED — `verification_token` proved nothing and was checked by nobody.** New
+  `app/verification_token.py`: the token is now HMAC-SHA256-keyed with a process-local
+  secret (`Settings.bcc_verification_secret`) rather than a bare `sha256` of public fields —
+  unforgeable without the secret — and persisted (in-memory, same accepted scope as
+  `nonce_store.py`) so a relying party can ask `POST /v1/bcc/verify_token` whether a given
+  token was genuinely issued for exactly those commitment fields. Verified: a token cannot
+  be reproduced by recomputing `sha256` of the public fields (the old scheme could be, by
+  construction); two independently-started `Settings()` instances get different secrets and
+  reject each other's tokens; a full HTTP round trip through real `/v1/bcc/intercept` →
+  `/v1/bcc/verify_token` confirms `valid: true` for a genuine token and `false` for a forged
+  one.
+* **CLOSED — cross-thread signer nonce race between anchoring and reputation sync.** New
+  `app/nonce_lock.py`: a process-wide, per-signer-address `threading.Lock` held for the FULL
+  read-nonce → sign → broadcast → mine sequence in `anchor.py::anchor_root`,
+  `reputation.py::push_score`, and `reputation.py::raise_dispute`. Verified two ways: (1) with
+  the lock removed, 8 concurrent `push_score` calls sharing one signer key against a real
+  anvil produced 6/8 real `"nonce too low"` RPC errors, confirming this was a genuine,
+  reproducible race, not a theoretical one; (2) with the lock restored, the same 8-thread test
+  passes cleanly every time, on-chain state confirmed for all 8 agents.
+* **CLOSED — `POST /v1/bcc/anchor/flush`'s returned `root` didn't match what was actually
+  anchored.** `AnchorResult` gained a `root` field set to the real per-agent sub-root
+  `anchor_batch_per_agent` computes and submits; the endpoint now returns each agent's own
+  root under `agents[agent_id].root` instead of the discarded full-batch root. Verified
+  against real anvil: the returned root for each agent independently recomputes to
+  `merkle_root` over only that agent's own leaves, and two agents in the same flushed batch
+  get two distinct, individually-correct roots.
+* **CLOSED — score pushes were unconditional every cycle, even when unchanged.**
+  `scoring_loop.py` caches the last-successfully-pushed `base_score` per agent
+  (`_last_pushed_score`, same in-memory posture as the existing dispute cooldown) and skips
+  the real transaction when unchanged, only updating the cache on a confirmed submission (so
+  a failed push is retried, never permanently skipped). Verified against real anvil: a second
+  sync cycle with an identical score submits no transaction; a cycle with a genuinely
+  different score does, confirmed by reading the new value back on-chain.
 * **Gap - Active Quarantine Enforcement (confirmed still open).** Nothing reads back
   on-chain slash/dispute state to affect a future `run_intercept` decision — OPA
   evaluation and the circuit breaker are still driven purely by this service's own request
@@ -341,82 +424,240 @@ beyond that work.
   attacker could replay a commitment or reset a lockout by hitting a different replica).
   Needs Redis-backed state before that happens, not urgent today.
 
-## 6. `integrity-userapi` (user accounts, strictly non-chain)
+## 6. `integrity-userapi` (user accounts, strictly non-chain) — ALL CLOSED
 
-*New section — this package wasn't previously covered here.*
+*Current State:* all four findings below are fixed and verified against a real Postgres
+(`userapi-postgres`, port 5435) — 49 tests passing (up from 35), plus 6 new real-HTTP tests
+in `integrity-mvp/demo` for the new userapi bridge. No mocked internals anywhere in the new
+coverage: auth flows run through the real FastAPI app + `asgi-lifespan`, and the demo-bridge
+tests hit a real local `ThreadingHTTPServer`, matching this package's existing
+`_FakeOracleServer` pattern.
 
-* **Developer API keys and `ais_trust_ceiling` are entirely unwired — a dead feature
-  end-to-end.** The service issues/lists/revokes `uak_...` keys with a stamped
-  `ais_trust_ceiling`, and the frontend surfaces them (`SettingsPage.tsx`), but nothing
-  anywhere in the monorepo (oracle, bcc_middleware, SDK, CLI) ever authenticates a request
-  using a raw API key — `get_current_user_id` only ever decodes a JWT. Self-documented in
-  the package's own test docstring but absent from this gap doc until now.
-* **JWTs have no revocation path.** 24h HS256 tokens, no blocklist/`jti` tracking/logout/
-  refresh flow anywhere. A leaked bearer token — the only credential capable of managing
-  API keys or account data — stays valid up to 24h with no way to kill it early, unlike
-  API keys' explicit `revoked_at`.
-* **No login rate-limiting.** `POST /auth/login` has no lockout/throttle on repeated
-  failed attempts, unlike `bcc_middleware`'s circuit breaker for agent misbehavior.
-* **`demo_runs` remains a dead-end bookkeeping table.** `POST /demo/run` inserts
-  `status='pending'` and nothing ever transitions it. `integrity-mvp/demo/` now exists on
-  disk (a real scaffold has appeared there this session, likely from concurrent work) but
-  doesn't call this service at all — the bridge between "a demo run was requested" and
-  "a demo run actually happened" is still fully undesigned.
+* **CLOSED — developer API keys now actually authenticate requests.** `get_current_user_id`
+  (`app/deps.py`) accepts either a JWT bearer token *or* an `X-API-Key` header carrying a raw
+  `uak_...` key; the latter is sha256-hashed and looked up against `api_keys.key_hash WHERE
+  revoked_at IS NULL`, resolving to the key's owning `user_id`. Every existing route that
+  depended on `get_current_user_id` gained this for free (no per-route changes needed) —
+  `GET /me`, `GET /api-keys`, `/me/agents`, `/demo/*` are all now reachable with either
+  credential. Deliberate exception: minting (`POST /api-keys`) and revoking (`DELETE
+  /api-keys/{id}`) a key are JWT-only (`get_current_token`, not `get_current_user_id`) — an
+  API key that could mint further keys would let one leaked long-lived credential perpetuate
+  itself past its own revocation, so credential-management stays gated behind the shorter-lived,
+  individually-revocable JWT. Revoking a key now has a real, immediate effect: `revoked_at IS
+  NULL` in the lookup means a revoked key 401s on its very next use. Regression tests in
+  `tests/test_api_keys.py` (`test_api_key_authenticates_a_request`,
+  `test_revoked_api_key_no_longer_authenticates`, `test_unknown_api_key_401s`,
+  `test_api_key_resolves_to_its_own_owner_not_another_users`,
+  `test_api_key_cannot_mint_further_api_keys`, `test_api_key_cannot_revoke_api_keys`) replace
+  the old docstring that explicitly said this code path didn't exist.
+* **CLOSED — JWTs are now revocable.** `create_access_token` (`app/security.py`) stamps a
+  per-token `jti` (uuid4) into every issued token; `decode_access_token` now returns a
+  `DecodedToken(user_id, jti, expires_at)` instead of a bare string. New
+  `migrations/0002_jwt_revocation.sql` adds a `revoked_tokens(jti PK, user_id, revoked_at,
+  expires_at)` table. `get_current_token` (`app/deps.py`, the dependency `get_current_user_id`
+  now delegates to for the bearer-token path) checks `revoked_tokens` on every request. New
+  `POST /auth/logout` inserts the presented token's `jti` there — and, since it now has the
+  transaction open, opportunistically `DELETE`s any `revoked_tokens` rows past their own
+  `expires_at` first, so the table self-prunes without needing a separate cron/worker (a
+  revoked token whose `exp` has already passed could never be replayed anyway — `jwt.decode`
+  rejects it on expiry before `revoked_tokens` is ever consulted). Tests:
+  `test_logout_revokes_the_token_immediately`,
+  `test_logout_only_revokes_the_presented_token_not_others` (two independent logins for the
+  same user get distinct `jti`s; revoking one doesn't touch the other),
+  `test_logout_requires_a_valid_token`.
+* **CLOSED — login now rate-limits repeated failures.** New `app/login_limiter.py`
+  (`LoginRateLimiter`) mirrors `bcc_middleware/app/circuit_breaker.py`'s in-memory
+  per-key-counter-plus-timed-lockout shape, keyed on the lowercased login email rather than an
+  agent DID, with deliberately looser defaults (`login_failure_threshold=5`,
+  `login_lockout_duration_seconds=300`, vs. bcc's `violation_threshold=3`/`900s`) since a login
+  form has a much higher legitimate-typo rate than a signed agent commitment. `POST
+  /auth/login` checks `is_locked_out` first (429 + `Retry-After` header if tripped), records a
+  failure on a bad password, and clears the counter on success. Same accepted single-process
+  state tradeoff as the circuit breaker it mirrors (would need Redis for multi-replica). Tests:
+  `test_login_locks_out_after_repeated_failures` (even the *correct* password 429s once
+  locked out), `test_login_lockout_is_scoped_to_one_email`,
+  `test_login_success_resets_the_failure_count`.
+* **CLOSED (real bridge added; UI trigger explicitly out of scope, documented) — `demo_runs`
+  now has a real completion path.** New `PATCH /demo/runs/{id}` (`app/main.py`,
+  `DemoRunUpdateRequest` in `app/schemas.py`) lets an authenticated owner transition their run
+  through `running` → `completed`/`failed`, stamping `finished_at` only on a terminal status
+  and storing a real `result_summary` JSONB payload (asyncpg now round-trips `jsonb` as plain
+  dicts everywhere via a codec registered in `app/db.py::create_pool` — previously
+  unregistered, since nothing had ever written non-null JSONB before this). New
+  `integrity-mvp/demo/src/integrity_demo/userapi_bridge.py` calls this endpoint from the
+  scenario engine itself: `main()` now reports `running` at start and `completed`/`failed` (with
+  a real summary — agents registered, their sovereign-agent addresses, or the exception string)
+  at the end, entirely opt-in via three env vars (`USERAPI_URL`/`USERAPI_TOKEN`/
+  `USERAPI_RUN_ID`) an operator sets when they want a specific `make demo` invocation tied back
+  to a `demo_runs` row created beforehand — unset, it's a no-op, so the engine still runs
+  standalone exactly as before. Callback failures are logged and swallowed, never raised,
+  matching this repo's fail-open posture for non-authorization side channels (same posture as
+  `bcc_middleware`'s best-effort Merkle anchoring). Tests: `tests/test_demo_runs.py` (PATCH
+  transitions, 404 on unknown/other-user's run, 422 on an invalid status) and
+  `integrity-mvp/demo/tests/test_userapi_bridge.py` (6 tests against a real local HTTP server:
+  no-op when unset, bearer-vs-`X-API-Key` header selection, and that HTTP/connection errors are
+  swallowed, not raised). Honest coverage note: `main()`/`_run_scenario()`'s own refactor (the
+  split that lets `main()` wrap the real scenario in a try/except and report `completed` vs.
+  `failed`) is inspection-verified, not runtime-tested — running it needs a live Base Sepolia
+  RPC + funded wallet, which is outside what this fix's test run could exercise. The
+  `userapi_bridge` module itself (what actually talks to userapi) has full real-HTTP coverage;
+  the call sites around it in `main()` do not. Genuinely still out of scope, not fixed here:
+  nothing in `integrity-mvp`'s dashboard UI currently creates a `demo_runs` row or launches this
+  CLI process (`userapi.ts` has no demo-run calls, no "Start Demo" button exists) — `make demo`
+  remains an operator-run script against live Base Sepolia using a funder private key, not
+  something the frontend can trigger; wiring that would need a job-queue/worker service, a
+  materially bigger and separate piece of scope than closing the recording/reporting gap this
+  finding was actually about.
 
-## 7. Frontend (`integrity-mvp`) — findings from a full-package audit
+## 7. Frontend (`integrity-mvp`) — findings from a full-package audit, ALL CLOSED
 
 *Current State:* real backend wiring landed this session for `ChainOfThoughtPage`,
-`SdkTelemetryPage`, `IntelligencePage`, and the dashboard's `throughput`/`events` widgets.
+`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `ShieldPage`'s Stability
+Certification tab, and the dashboard's `throughput`/`events`/`radar` widgets.
 `AgentContext.tsx` is confirmed real (calls `oracle.listAgents()`) — this doc previously,
 incorrectly, listed it as mock; that was stale. Two real on-chain write paths already
 exist via wagmi (`ShieldPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
 the prior "zero Web3 connectivity" claim in this doc was also stale and has been removed.
+`npm run build` (`tsc -b && vite build`) now succeeds cleanly — verified end-to-end,
+including the 3 unrelated pre-existing unused-import errors that were silently failing
+the production build before anyone had run it locally.
 
-* **`npm run test` currently fails.** `vitest.config.ts`'s exclude list doesn't cover
+* **CLOSED — `npm run test` currently fails.** `vitest.config.ts`'s exclude list doesn't cover
   `demo/`, so Vitest picks up a `node:test`-based file inside `integrity-mvp/demo/` and
   fails to bundle it — red CI/local runs even though the app's own tests pass. **Fix:**
   add `'demo/**'` to the exclude array. One line.
-* **Undefined CSS custom properties beyond the `--primary`/`--gold` pair fixed this
-  session — same bug class, wider blast radius, not yet fixed.** `--bg-surface` (12
-  files, including the chrome wrapping every dashboard widget), `--border` (5 files,
-  visually confirmed near-invisible on `IdentityPage`), `--space-6` (9 files, collapses
-  intended spacing to zero), plus a genuinely broken `hsla(var(--accent-primary) / 0.5)`
-  in `.glass-panel-hover:hover` (`--accent-primary` is a hex string, not an HSL triplet —
-  the whole declaration is dropped, silently killing hover states on 10 files' worth of
-  elements), and `--accent-primary-hsl` used with no fallback in 3 files (wallet-connect
-  pill border, sidebar logo glow). **Fix:** same pattern as the already-applied fix — add
-  the missing tokens to `:root`, aliasing to existing semantic equivalents where one
-  exists (`--border` → `--border-color`, etc).
-* **`AuditPage.tsx` makes a specific, false security claim with no mock-data
-  disclosure — the most serious frontend finding.** Its copy asserts actions are
-  "cryptographically hashed and anchored to Base L2" and "cannot be tampered with by the
-  agent, host, or hypervisor." The data backing it (`LoggerContext.tsx`'s `INITIAL_LOGS`,
-  including a fabricated tx hash) is 3 hardcoded entries plus client-side session state —
-  nothing is hashed, nothing is anchored. Unlike every other mock surface in the app, this
-  one carries no `SeededDataBadge`. **Fix:** either badge it honestly or wire real logging
-  before this page ships to a real user.
-* **`ShieldPage.tsx`'s consent/slash actions are theater, not disclosed stubs.**
-  `handleSlashViolation` shows a native `alert()` claiming "Locked ITK Stake Slashed" with
-  **no contract call at all**, despite `Slasher.sol` existing on-chain and this same page
-  proving the real wagmi-write pattern works elsewhere (`handleSignBaa`). A user clicking
-  "Slash Stake" is told collateral was slashed; nothing happened. **Fix:** wire to a real
-  `Slasher` call, or disable+badge like the page's own "Create BAA" button already does.
-* **Several pages have mock data with a real backend endpoint already proven working
-  elsewhere, just not wired to this page:** `CompareTracesPage.tsx` (100% hardcoded
-  despite `oracle.getTraceTree()` already working in `ChainOfThoughtPage`),
-  `ActuarialHub.tsx` (could use real `oracle.listMarkets()`, already used by
-  `ExchangePage`), radar widgets in `WidgetRegistry.tsx`/`IntelligencePage.tsx` (ignore
-  real `AisComponents` already fetched elsewhere), `ShieldPage.tsx`'s "Stability
-  Certification" tab (hardcoded despite sibling tabs on the same page proving the live
-  pattern).
-* **Several buttons have no handler at all, undisclosed:** `IdentityPage.tsx`'s
-  "Rotate Keys"/"Request Credential"/"Regenerate Attestation Document"/"Stake ITK"/
-  "Withdraw"/"Launch XNS Explorer", `FinancePage.tsx`'s Receive/Send/Swap/Buy/View
-  Explorer/New Allowance Rule.
-* **`DocumentsPage.tsx`** is fully fabricated with no backing capability anywhere
-  (`oracle.ts`/`userapi.ts` have no document/RAG-indexing endpoint) and no disclosure
-  badge — genuinely no capability yet, unlike the honestly-badged Tier-4 mocks elsewhere
-  in the app.
+* **CLOSED — undefined CSS custom properties beyond the `--primary`/`--gold` pair fixed
+  earlier this session.** `--bg-surface` (12 files), `--border`/`--border-main` (5+3
+  files), `--space-2` through `--space-12` (a full spacing scale, 9+ files), the broken
+  `hsla(var(--accent-primary) / 0.5)` in `.glass-panel-hover:hover` (was a hex string,
+  not an HSL triplet — the whole declaration silently dropped), `--accent-primary-hsl`
+  (added per-theme, since it can't be derived from the hex color at runtime), plus ~25
+  more (`--bg-card`, `--shadow`/`--shadow-lg`, `--glass-*`, `--r-xs/sm/md`, status/brand
+  aliases) found by a full `var(...)`-reference sweep, not just the originally-named
+  ones. All added to `:root` as aliases of existing theme tokens. Verified visually
+  across Dashboard/Contracts/Exchange/CompareTraces/Shield/Documents/Finance/Identity.
+* **CLOSED — `AuditPage.tsx` made a specific, false security claim with no mock-data
+  disclosure.** Its copy asserted actions are "cryptographically hashed and anchored to
+  Base L2" and "cannot be tampered with by the agent, host, or hypervisor," backed by 3
+  hardcoded `LoggerContext.tsx` entries (including a fabricated tx hash) — nothing was
+  hashed, nothing was anchored. Rewritten to honestly state what's real (BCC Middleware
+  DOES batch-anchor approved intents, best-effort, not yet per-event) versus what this
+  specific page shows (a simulated local event feed, now `SeededDataBadge`-marked, no
+  real audit-trail query endpoint exists yet).
+* **CLOSED — `ShieldPage.tsx`'s consent/slash actions were theater, not disclosed
+  stubs.** `handleSlashViolation` showed a native `alert()` claiming "Locked ITK Stake
+  Slashed" with no contract call at all. Neither action can honestly be wired to a real
+  transaction from this dashboard (EHRGate.grantAccess/revokeAccess are PATIENT-signed;
+  a real slash needs Slasher's arbiter role after a dispute window) — both now use
+  `addToast('info', ...)` with an explicit "Simulated only... No transaction was sent"
+  message, matching the real wagmi handlers' toast pattern instead of a native `alert()`
+  that read as more legitimate than it was. Fixing this surfaced a second, separate real
+  bug: `.toast`/`.toast-container` had NO CSS anywhere in the app, so every toast in the
+  app (including the real wagmi success/error toasts) rendered invisibly — fixed
+  alongside, verified visually (toast now renders bottom-right, styled, on click).
+* **CLOSED — `CompareTracesPage.tsx` was 100% hardcoded to 3 fixed fake trace IDs
+  despite `oracle.getTraceTree()` already working in `ChainOfThoughtPage`.** Now
+  discovers recent trace_ids from the real SSE stream (same "no list-traces endpoint,
+  only get-by-id" pattern `ChainOfThoughtPage` already proved out) and fetches each via
+  the real endpoint; Gantt offsets/widths/durations, the JSON payload tab, and the
+  Deviations panel are now all computed from the real fetched span trees instead of a
+  curated fake pair. Honest empty/error states when no real trace has streamed in yet.
+* **CLOSED — radar widgets in `WidgetRegistry.tsx`/`IntelligencePage.tsx` plotted fixed,
+  fabricated dimensions ignoring real `AisComponents` already fetched elsewhere.** Both
+  now plot the real entropy/grounding/sacrifice/compliance breakdown
+  (`oracle.getAis()`) — the dashboard widget for the selected agent, the Intelligence
+  page for the top 2 real leaderboard agents — with an honest "select an agent" /
+  "needs 2+ leaderboard agents" fallback instead of ever showing a fabricated number.
+* **CLOSED — `ShieldPage.tsx`'s "Stability Certification" tab was hardcoded despite
+  sibling tabs on the same page already proving the live oracle+on-chain-read pattern.**
+  The tier badge is now derived from the real AIS score; the BAA Compliance Ratio from
+  the real per-agent BAA data this same page already fetches via `getLogs`/
+  `readContract`. "Prediction Accuracy (Markets)" and "Collateral Health Factor" have no
+  real backend source anywhere in the monorepo (no market-prediction-scoring endpoint;
+  `Slasher.sol`'s real `stakeOf`/`lockedStakeOf` aren't wired to this frontend) — shown
+  as an explicit "Not available" state instead of a fabricated percentage.
+* **VERIFIED, NOT A REAL GAP — `ActuarialHub.tsx`'s original finding ("could use real
+  `oracle.listMarkets()`") doesn't hold up under inspection.** `oracle.listMarkets()`
+  returns `MarketSummaryDto` — real `IntegrityMarket` prediction-market data (`question`,
+  `outcome_count`, `resolve_deadline`, per-outcome staking), already correctly used by
+  `ExchangePage`. `ActuarialHub`'s agent-hiring-task marketplace concept (`title`,
+  `reward_itk`, bidding, escrow) is a structurally different domain with no
+  corresponding oracle endpoint at all — substituting `listMarkets()` in would produce a
+  broken, nonsensical page, not a fix. The component already carries precise, accurate
+  disclosure at both of its real mock points (`"A2ACapitalPool has no oracle read
+  endpoint yet"`, `"No benchmark-ingestion endpoint yet"`) — no code change needed here;
+  this bullet is corrected rather than closed by a wire-up.
+* **CLOSED — several buttons had no handler at all, undisclosed.** `IdentityPage.tsx`'s
+  "Rotate Keys"/"Request Credential"/"Launch XNS Explorer" turned out to already be wired
+  in a later redesign this session missed on first read; "Regenerate Attestation
+  Document" and "Stake ITK"/"Withdraw" are now `disabled` with an honest `title` tooltip
+  (`NitroAttestationGenerator` really does raise `NotImplementedError` rather than fake a
+  document; `Slasher.sol` has real `stake()`/`unstake()` entrypoints but this frontend
+  doesn't sync the Slasher ABI or resolve the agent's Slasher clone address yet — a real
+  follow-up, not silently abandoned). `FinancePage.tsx`'s Receive/Send/Swap/Buy are
+  disabled with per-action tooltips (no transfer/DEX/fiat-onramp integration exists
+  anywhere in this stack); "New Allowance Rule" is disabled (OPA policies are static
+  Rego files, not dynamically editable via a UI); "View Explorer" is now wired for real
+  — opens the connected wallet's address on the actual configured chain's block explorer
+  via wagmi's chain config, not a placeholder.
+* **CLOSED — `DocumentsPage.tsx`** was fully fabricated with no backing capability
+  anywhere (`oracle.ts`/`userapi.ts` have no document/RAG-indexing endpoint) and no
+  disclosure badge. Added an explicit "Not yet implemented" banner + `SeededDataBadge`,
+  and disabled the "Upload Document" button with a tooltip explaining there's nowhere
+  for an uploaded file to go — matching the honestly-badged posture of every other
+  Tier-4 mock in the app instead of being the one silent exception.
+* **CLOSED — `TriMetricWidget.tsx` (dashboard's "Tri-Metric Risk Analysis" panel) badged
+  itself "LIVE MODEL" while every number on it was fake.** Found during a follow-up audit
+  focused specifically on this widget. `avgAis` was picked from 3 hardcoded magic
+  constants (920/850/950) gated on a crude threshold; `blockedRate` ("0.42") and
+  `riskExposure` ("12,500") were literal strings with no computation at all; all three
+  sparklines were fabricated trend arrays. Unlike every sibling in
+  `WidgetRegistry.tsx` (which either fetches real data or renders a `SeededDataBadge`),
+  this one did neither — the single most severe fake-data surface left in the dashboard.
+  Fixed two of the three metrics with real data reusing existing infrastructure: `AIS
+  Deficit` and `BCC Intent Violation Rate` now fan out `oracle.getAis()` across every
+  agent in the already-global `AgentContext` (same real-data pattern `DashboardPage.tsx`'s
+  `gauge` widget already used), averaging real `ais` and `components.compliance` — the
+  latter is exactly `(1 - flagged_ratio) * 1000` per scoring-core's own polarity, so
+  inverting it back out recovers the real BCC-violation ratio the formula names, not a
+  proxy. The third metric ("Smart BAA Value at Risk") is now honestly marked unavailable
+  via `SeededDataBadge` instead of showing a number: no probability-of-leak model exists
+  anywhere in this protocol (same conclusion independently reached for ActuarialHub
+  earlier this session), and no network-wide index of staked BAA collateral exists either
+  — `SmartBAA.requiredCollateral()` is only readable per-BAA-address today (confirmed via
+  `ShieldPage.tsx`), there's no "list every active BAA" capability to sum across. Building
+  that real aggregate would need a new oracle-side indexing endpoint — logged as a genuine
+  follow-up, not fabricated here. Fabricated sparklines were removed rather than kept
+  under the now-real numbers (a fake trend line under a real value would itself be
+  misleading — implies historical data that isn't being fetched). `npx tsc -b --noEmit`,
+  `npm run lint`, and `npm run build` all pass clean.
+  **Two real runtime bugs were only caught by actually loading the dashboard in a browser
+  against the live local stack** (real Postgres/oracle/anvil, one real registered agent,
+  `VITE_MOCK_MODE` temporarily overridden to `false` for the test run since the default
+  `.env` filters `listAgents()` down to `mock-agent-*` IDs and the one real local agent
+  doesn't match that prefix):
+  1. The 3 KaTeX formula sub-components (`AisFormula`/`BccFormula`/`ExposureFormula`) were
+     defined as local consts *inside* the widget's function body — a pre-existing pattern
+     copied forward from the original file, harmless while the widget was static props-only.
+     Adding real `useEffect`/`useState` here meant the widget now re-renders on its own
+     fetch-driven state changes too, and each re-render redefined those consts as new
+     component *types*, forcing React to fully unmount+remount (re-parse) all 3 KaTeX
+     formulas every render — observed as `mathVsTextAccents` console warnings flooding
+     multiple times per second and freezing the tab (`Page.captureScreenshot` timing out).
+     Fixed by hoisting all 3 to module scope; also added a reference-equality guard on the
+     `agents.length === 0` branch's `setSamples([])` call to avoid an unnecessary render
+     from a fresh-but-equivalent empty-array literal.
+  2. Even after the freeze was fixed, the two now-real value numbers ("50.0%"/"0.00%") were
+     visually clipped by the grid cell boundary — `DashboardPage.tsx`'s hardcoded
+     `DEFAULT_LAYOUTS` gives this widget `h: 2` (300px at `rowHeight=150`), sized for the
+     *old* layout where the sparklines were absolutely-positioned background decoration
+     that consumed no real flex height. The new layout's formula+value+label content
+     needs more room. Bumped to `h: 3`/`minH: 3` in both `lg`/`md` breakpoints
+     (`DEFAULT_LAYOUTS`) and `WidgetRegistry.tsx`'s `defaultSize` for consistency;
+     react-grid-layout's default vertical compaction reflows every widget below it
+     automatically, no other entry's coordinates needed hand-adjusting. Re-verified via
+     screenshot: all three metrics (including the honest "Not available" disclosure text)
+     now render fully visible with no clipping and no repeated console warnings.
 
 ## 8. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
 *Current State:* A real CI workflow now runs every package's test suite (mirroring the root `Makefile`'s `test` target) as separate per-package jobs on push/PR to `main`. The `notify-jules-on-failure` job makes a real call to the Jules API (`POST https://jules.googleapis.com/v1alpha/sessions`, `X-Goog-Api-Key` auth, `AUTOMATION_MODE_AUTO_CREATE_PR`) — verified against `@google/jules-sdk`'s actual published source, not guessed.
