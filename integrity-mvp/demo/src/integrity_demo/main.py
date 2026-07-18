@@ -16,6 +16,7 @@ from integrity_sdk.did import load_or_create_did
 from integrity_sdk.wallet import generate_or_load_evm_wallet
 from integrity_sdk.markets import allocate_capital
 from integrity_sdk.chain import load_deployments
+from integrity_sdk.client import IntegrityClient
 
 from integrity_demo.agent_loop import IntegrityAgent
 from integrity_demo import userapi_bridge
@@ -39,6 +40,45 @@ OTLP_ENDPOINT = "http://localhost:4317"
 # `.get_tracer()`, never through the global setter, is the standard
 # OTel pattern for several independent resources coexisting in one process.
 _tracers: dict = {}
+_tracer_providers: dict = {}
+# Real IntegrityClient instances, one per agent, used ONLY for
+# log_telemetry()/flush_telemetry() (POST /v1/telemetry/ingest) -- kept
+# entirely separate from the OTel tracer machinery above. Before this, this
+# engine only ever emitted OTel spans; it never called the SDK's telemetry-
+# submission path at all, so `telemetry_events` (the table AIS's
+# entropy/grounding/sacrifice/compliance signals are actually derived from)
+# stayed empty for every demo agent forever, regardless of how many times
+# the demo ran -- confirmed by querying the oracle directly after a real run
+# and finding zero rows despite real OTel spans/traces existing. `enable_
+# otel_export=False` here is deliberate: IntegrityClient.__init__ would
+# otherwise call telemetry_core.init_telemetry(), which installs a GLOBAL
+# TracerProvider (see that function's own one-shot-singleton warning) --
+# exactly the trap `_tracer_for`'s per-agent providers above were built to
+# avoid for this same multi-agent-in-one-process engine. OTel tracing and
+# telemetry-event submission are two independent real pipelines here, not
+# one going through the other.
+_clients: dict = {}
+
+
+def _client_for(agent_id: str, keypair) -> IntegrityClient:
+    if agent_id not in _clients:
+        _clients[agent_id] = IntegrityClient(agent_id=agent_id, keypair=keypair, enable_otel_export=False)
+    return _clients[agent_id]
+
+
+def _submit_telemetry(agent_did: str, keypair, metadata: dict) -> None:
+    """Best-effort, matching this module's existing tolerance for telemetry/
+    tracing failures not aborting the run (see _flush_all_tracers' docstring
+    for the same posture applied to OTel spans). A failed submission here
+    means one demo agent's AIS stays at "no data yet" for this run, not that
+    registration or capital allocation should be considered failed."""
+    try:
+        client = _client_for(agent_did, keypair)
+        client.log_telemetry(metadata)
+        if not client.flush_telemetry():
+            logger.warning("telemetry flush for %s was not accepted by the oracle", agent_did)
+    except Exception:
+        logger.warning("failed to submit telemetry for %s", agent_did, exc_info=True)
 
 
 def _tracer_for(agent_id: str):
@@ -51,8 +91,24 @@ def _tracer_for(agent_id: str):
         )
         provider = TracerProvider(resource=resource)
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=OTLP_ENDPOINT, insecure=True)))
+        _tracer_providers[agent_id] = provider
         _tracers[agent_id] = provider.get_tracer(__name__)
     return _tracers[agent_id]
+
+
+def _flush_all_tracers() -> None:
+    """`BatchSpanProcessor` buffers spans and exports on a timer/batch-size
+    threshold -- nothing forces a flush on process exit. Without this, any
+    span still sitting in the buffer when this short-lived script's process
+    exits is silently dropped, never reaching the oracle's OTLP receiver
+    (found by actually running the demo and checking the oracle's real
+    otel_spans table came up empty, not by inspection)."""
+    for agent_id, provider in _tracer_providers.items():
+        try:
+            provider.force_flush(timeout_millis=5000)
+            provider.shutdown()
+        except Exception:
+            logger.warning("failed to flush OTel spans for %s", agent_id, exc_info=True)
 
 
 def _check_funder_balance(agent_ids: list) -> None:
@@ -101,6 +157,8 @@ def main():
         raise
     else:
         userapi_bridge.report_status("completed", summary)
+    finally:
+        _flush_all_tracers()
 
 
 def _run_scenario() -> dict:
@@ -117,15 +175,27 @@ def _run_scenario() -> dict:
 
     for a in agents:
         logger.info(f"Registering {a['id']}...")
-        with _tracer_for(a["id"]).start_as_current_span("register_agent"):
+        # Resolve the real DID before opening the span -- `load_or_create_did`
+        # is a pure, deterministic local keypair load/create with no chain
+        # interaction, and `register_agent` calls it again internally with
+        # the same result, so this doesn't duplicate any real work. Every
+        # OTel span for this agent must be tagged with its real DID, not the
+        # internal persona short-name ("capital_allocation_agent") -- the
+        # oracle's telemetry/trace endpoints and the frontend both key
+        # exclusively by DID (see GET /v1/agents, /v1/agent/{did}/telemetry),
+        # so a span resource attribute using the short-name would be
+        # permanently invisible to any per-agent view (found by actually
+        # querying the oracle after a real run and getting zero rows back
+        # for a DID that had spans stored under the short-name instead).
+        agent_did, keypair, _ = load_or_create_did(a["id"])
+        with _tracer_for(agent_did).start_as_current_span("register_agent"):
             try:
                 # skip_oracle_registration if no oracle running locally
                 reg = register_agent(
                     agent_id=a["id"],
                     compliance_vertical=a["vertical"],
-                    skip_oracle_registration=True
+                    skip_oracle_registration=False
                 )
-                _, keypair, _ = load_or_create_did(a["id"])
                 evm_wallet = generate_or_load_evm_wallet(a["id"])
 
                 agent_data[a["id"]] = {
@@ -133,6 +203,21 @@ def _run_scenario() -> dict:
                     "keypair": keypair,
                     "evm_wallet": evm_wallet
                 }
+
+                # Real telemetry_events row -- see _submit_telemetry's
+                # docstring for why this didn't exist before. No text_output
+                # yet at this point (nothing has "said" anything), so
+                # entropy/grounding derive to their real, honest neutral
+                # defaults (1.0 -- "no evidence of instability", per
+                # derive.py's own docstring) rather than a fabricated score;
+                # what matters here is a real, signed, oracle-accepted event
+                # existing at all for every agent, not just the one that
+                # happens to make an LLM call below.
+                _submit_telemetry(
+                    agent_did,
+                    keypair,
+                    {"event": "agent_registered", "vertical": a["vertical"], "persona": a["id"]},
+                )
             except Exception as e:
                 logger.error(f"Failed to register {a['id']}: {e}")
 
@@ -142,16 +227,22 @@ def _run_scenario() -> dict:
         target = agent_data.get("trading_agent")
 
         if target:
-            allocator_tracer = _tracer_for("capital_allocation_agent")
+            allocator_did = allocator["registration"].did
+            allocator_tracer = _tracer_for(allocator_did)
 
             def tool_allocate_capital(target_address: str, amount_wei: str):
                 with allocator_tracer.start_as_current_span("agent_tool_allocate_capital") as span:
-                    span.set_attribute("agent.id", "capital_allocation_agent")
+                    span.set_attribute("agent.id", allocator_did)
                     span.set_attribute("target.address", target_address)
                     try:
                         deployments = load_deployments(os.getenv("DEPLOYMENTS_FILE", "../../deployments.local.json"))
+                        from integrity_sdk.bcc import NonceStore
+                        from integrity_sdk.did import agent_dir
+                        nonce_store = NonceStore(agent_dir("capital_allocation_agent") / "nonce")
+                        next_nonce = nonce_store.next()
+                        
                         alloc_id, token = allocate_capital(
-                            allocator_agent_id="capital_allocation_agent",
+                            allocator_agent_id=allocator["registration"].did,
                             keypair=allocator["keypair"],
                             evm_account=allocator["evm_wallet"],
                             allocator_sovereign_agent_address=allocator["registration"].sovereign_agent,
@@ -160,12 +251,13 @@ def _run_scenario() -> dict:
                             target_agent_address=target_address,
                             amount_wei=int(amount_wei),
                             min_ais_to_maintain=50,
-                            nonce=1,
+                            nonce=next_nonce,
                             bcc_middleware_url="http://localhost:8000"
                         )
                         span.set_attribute("allocation.id", alloc_id)
                         return {"status": "success", "allocation_id": alloc_id, "token": token}
                     except Exception as e:
+                        logger.exception("Capital allocation tool execution failed")
                         span.record_exception(e)
                         return {"status": "error", "message": str(e)}
 
@@ -203,10 +295,21 @@ def _run_scenario() -> dict:
             # register successfully rather than losing that too.
             try:
                 with allocator_tracer.start_as_current_span("agent_conversation") as span:
-                    span.set_attribute("agent.id", "capital_allocation_agent")
+                    span.set_attribute("agent.id", allocator_did)
                     target_addr = target["registration"].sovereign_agent
                     response = agent.run_conversation(f"Please allocate capital to the trading agent. Their address is: {target_addr}")
                     logger.info(f"Agent Final Response: {response}")
+                    # Real telemetry_events row carrying the real LLM output --
+                    # unlike the neutral registration-only entry above, this one
+                    # lets derive.py compute a genuine (not neutral-default)
+                    # entropy/grounding signal from real text, since
+                    # `agent.run_conversation`'s actual final response is
+                    # available here.
+                    _submit_telemetry(
+                        allocator_did,
+                        allocator["keypair"],
+                        {"event": "agent_conversation", "text_output": response},
+                    )
             except Exception as e:
                 logger.error(f"Capital allocator's agent conversation failed: {e}")
                 tool_call_error = str(e)

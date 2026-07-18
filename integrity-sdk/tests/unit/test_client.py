@@ -306,3 +306,63 @@ def test_non_409_failure_still_rolls_back_nonce_for_retry(monkeypatch):
     assert client.flush_telemetry() is False
     assert get_calls == []  # non-409 failure does not trigger a re-sync
     assert client._nonce == 10  # rolled back from 11
+
+
+# --- OTel wiring: client.traceable()/trace_run() must actually export spans ---
+#
+# FIXED 2026-07-16: `client.traceable(...)` opens a real OTel span
+# (get_tracer(...).start_as_current_span(...)) on every call, but nothing
+# ever installed a real TracerProvider/exporter before this fix -- so
+# get_tracer() silently returned OTel's default no-op tracer, and every
+# span this SDK's own "recommended tracing API" ever produced was thrown
+# away before it left the process, confirmed by tracing a real agent run
+# end-to-end and finding zero rows in the oracle's real otel_spans table.
+# `telemetry_core.init_telemetry` is mocked here (not exercised for real)
+# because it's a process-global singleton (module-level `_initialized`
+# guard) -- calling the real thing would leak state across every other test
+# in this file/session and make assertions about call arguments impossible
+# to isolate, the same reason `requests.post`/`requests.get` are mocked
+# above. The real, unmocked end-to-end path (real OTel export -> real
+# oracle OTLP receiver -> real otel_spans rows -> real GET /v1/traces/{id})
+# is proven in PRODUCTION_GAPS.md's writeup for this fix, not by this file.
+
+
+def test_construction_wires_up_real_otel_export_by_default(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.telemetry_core.init_telemetry",
+        lambda agent_id, endpoint: calls.append((agent_id, endpoint)),
+    )
+
+    IntegrityClient("agent-a", oracle_url="http://oracle-host:8080", auto_flush=False)
+
+    assert calls == [("agent-a", "oracle-host:4317")]
+
+
+def test_otlp_endpoint_override_is_respected(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.telemetry_core.init_telemetry",
+        lambda agent_id, endpoint: calls.append((agent_id, endpoint)),
+    )
+
+    IntegrityClient(
+        "agent-a",
+        oracle_url="http://oracle-host:8080",
+        otlp_endpoint="collector.example.com:4317",
+        auto_flush=False,
+    )
+
+    assert calls == [("agent-a", "collector.example.com:4317")]
+
+
+def test_enable_otel_export_false_skips_wiring(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.telemetry_core.init_telemetry",
+        lambda agent_id, endpoint: calls.append((agent_id, endpoint)),
+    )
+
+    IntegrityClient("agent-a", enable_otel_export=False, auto_flush=False)
+
+    assert calls == []

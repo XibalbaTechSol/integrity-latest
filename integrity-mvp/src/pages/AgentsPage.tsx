@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { NotionDatabase } from '../components/NotionDatabase';
 import { createColumnHelper } from '@tanstack/react-table';
 import { oracle, type AgentSummary } from '../services/oracle';
+import { ClaimAgentModal } from '../components/ClaimAgentModal';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
 
 interface AgentRow extends AgentSummary {
   ais: number | null;
@@ -15,26 +17,28 @@ export const AgentsPage = () => {
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [claimAddress, setClaimAddress] = useState('');
+  const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
+
+  const refetchAgents = async () => {
+    try {
+      const summaries = await oracle.listAgents();
+      const withAis = await Promise.all(
+        summaries.map(async (agent) => {
+          const ais = await oracle.getAis(agent.id).then(r => r.ais).catch(() => null);
+          return { ...agent, ais };
+        }),
+      );
+      setAgents(withAis);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to reach the oracle');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const summaries = await oracle.listAgents();
-        const withAis = await Promise.all(
-          summaries.map(async (agent) => {
-            const ais = await oracle.getAis(agent.id).then(r => r.ais).catch(() => null);
-            return { ...agent, ais };
-          }),
-        );
-        if (!cancelled) setAgents(withAis);
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Failed to reach the oracle');
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    refetchAgents();
   }, []);
 
   const avgAis = useMemo(() => {
@@ -112,10 +116,11 @@ export const AgentsPage = () => {
             </div>
             <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid var(--primary)', borderRadius: '8px', display: 'flex', gap: '12px', marginTop: '8px', alignItems: 'center' }}>
               <Terminal size={20} color="var(--primary)" />
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>
-                This will deploy the 5 Agent Primitives via <code style={{ color: 'var(--primary)' }}>AgentPrimitivesFactory.sol</code> on Base L2.
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>This will deploy the 5 Agent Primitives via <code style={{ color: 'var(--primary)' }}>AgentPrimitivesFactory.sol</code> on Base L2.</span>
+                <SeededDataBadge label="Not wired yet -- no real deploy flow exists in this frontend; see integrity-sdk/integrity-cli for the real register_agent() flow" />
               </div>
-              <button className="btn btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}>Deploy</button>
+              <button className="btn btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not implemented -- use integrity-cli's real register-agent command">Deploy</button>
             </div>
           </div>
 
@@ -132,18 +137,36 @@ export const AgentsPage = () => {
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Agent Contract Address (Base L2)</label>
-              <input type="text" className="input-field" placeholder="0x..." style={{ width: '100%', background: 'var(--bg-main)' }} />
+              <input
+                type="text"
+                className="input-field"
+                placeholder="0x..."
+                value={claimAddress}
+                onChange={e => setClaimAddress(e.target.value)}
+                style={{ width: '100%', background: 'var(--bg-main)' }}
+              />
             </div>
             <div style={{ padding: '16px', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', gap: '12px', marginTop: '8px', alignItems: 'center' }}>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>
                 You must hold the admin key.
               </div>
-              <button className="btn btn-secondary" style={{ padding: '8px 16px', background: 'white', color: 'black', whiteSpace: 'nowrap' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: '8px 16px', background: 'white', color: 'black', whiteSpace: 'nowrap' }}
+                onClick={() => setIsClaimModalOpen(true)}
+              >
                 Verify & Claim
               </button>
             </div>
           </div>
         </div>
+
+        <ClaimAgentModal
+          isOpen={isClaimModalOpen}
+          defaultAddress={claimAddress}
+          onClose={() => setIsClaimModalOpen(false)}
+          onSuccess={() => { setIsClaimModalOpen(false); refetchAgents(); }}
+        />
         <div className="grid grid-3 mb-6" style={{ flexShrink: 0, gap: '24px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', padding: '24px', background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '16px', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
             <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'var(--gold)' }}></div>

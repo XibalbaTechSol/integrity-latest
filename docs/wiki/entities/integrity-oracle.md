@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-07-16
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -81,6 +81,8 @@ to `0`). Now documented in `docs/INTERFACE_CONTRACT.md` §6.3 — it was silent
 on this schema until 2026-07-09, which is how `integrity-sdk`'s client drifted
 from it undetected (see [integrity-sdk](integrity-sdk.md)'s "Fixed 2026-07-09"
 note).
+
+On 2026-07-16, we enhanced `chain.rs` (`resolve_primitives_by_did`) to log the actual RPC contract call error details when `resolveDID` fails instead of silently mapping them to `UnknownDid`. This resolves a major diagnostic visibility gap during stack startup and network resolution.
 
 ### `GET /v1/markets`, `GET /v1/markets/{id}` (§6.9)
 

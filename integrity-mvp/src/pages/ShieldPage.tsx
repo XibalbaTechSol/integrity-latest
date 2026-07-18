@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
-import { ShieldCheck, ShieldAlert, FileText, Lock, Activity, AlertTriangle, Award } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, FileText, Lock, Activity, AlertTriangle, Award, Database, Network, RefreshCw, Layers, UploadCloud } from 'lucide-react';
 import { NotionDatabase } from '../components/NotionDatabase';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useAccount } from 'wagmi';
 import { getPublicClient, readContract, writeContract, waitForTransactionReceipt } from '@wagmi/core';
@@ -75,13 +76,84 @@ const QUARANTINE_COLUMNS: ColumnDef<any>[] = [
   { accessorKey: 'status', header: 'Status', cell: info => <span className="badge badge-danger">{info.getValue() as string}</span> },
 ];
 
-type ShieldSubTab = 'Stability Certification' | 'Smart BAAs' | 'PHI Access Gates' | 'Audit & Compliance' | 'Quarantine Zone';
+// Merged in from the former standalone DocumentsPage (PRODUCTION_GAPS.md
+// §7) -- HIPAA/clinical document content belongs on the compliance page
+// its own filenames are about, not a separate top-level nav item. Still
+// fully disclosed: no document ingestion/RAG-indexing backend exists
+// anywhere in this monorepo, every number/row below remains fabricated.
+const DOCUMENT_SYNC_DATA = [
+  { day: 'Mon', chunks: 1200 },
+  { day: 'Tue', chunks: 2100 },
+  { day: 'Wed', chunks: 1800 },
+  { day: 'Thu', chunks: 3400 },
+  { day: 'Fri', chunks: 2800 },
+  { day: 'Sat', chunks: 4100 },
+  { day: 'Sun', chunks: 4800 }
+];
+
+const MOCK_DOCUMENTS = [
+  { name: 'HIPAA_Compliance_Guidelines_2026.pdf', cid: 'QmYwAPJzv5CZsnA625s3Xf2b...', status: 'Indexed', chunks: 420, date: '2 hours ago' },
+  { name: 'Patient_Onboarding_Protocol.docx', cid: 'QmZp1HhXw2Rvs9F82jN...', status: 'Indexed', chunks: 156, date: '5 hours ago' },
+  { name: 'Clinical_Trial_Results_Q3.pdf', cid: 'QmT7Kk3wLp8Rt4G2N...', status: 'Indexing', chunks: '-', date: 'Just now' },
+  { name: 'SmartBAA_Terms_of_Service.txt', cid: 'QmXv5VbMw9Lp8Rt4G...', status: 'Indexed', chunks: 42, date: '1 day ago' },
+];
+
+const DOCUMENT_COLUMNS: ColumnDef<any>[] = [
+  {
+    accessorKey: 'name',
+    header: 'Filename',
+    cell: info => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontWeight: 500 }}>
+        <div style={{ background: 'hsla(var(--bg-panel-hsl) / 0.5)', padding: '8px', borderRadius: '8px' }}>
+          <FileText size={16} color="var(--primary)" />
+        </div>
+        {info.getValue() as string}
+      </div>
+    ),
+    size: 350,
+  },
+  {
+    accessorKey: 'cid',
+    header: 'IPFS CID',
+    cell: info => <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{info.getValue() as string}</span>,
+    size: 250,
+  },
+  {
+    accessorKey: 'chunks',
+    header: 'Vector Chunks',
+    cell: info => (
+      <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <Layers size={14} className="text-muted" /> {info.getValue() as string | number}
+      </span>
+    ),
+    size: 150,
+  },
+  {
+    accessorKey: 'status',
+    header: 'Status',
+    cell: info => (
+      <span className={`badge ${info.getValue() === 'Indexed' ? 'badge-success' : 'badge-warning'}`}>
+        {info.getValue() as string}
+      </span>
+    ),
+    size: 150,
+  },
+  {
+    accessorKey: 'date',
+    header: 'Time',
+    cell: info => <span style={{ color: 'var(--text-muted)' }}>{info.getValue() as string}</span>,
+    size: 150,
+  },
+];
+
+type ShieldSubTab = 'Stability Certification' | 'Smart BAAs' | 'PHI Access Gates' | 'Audit & Compliance' | 'Quarantine Zone' | 'Documents';
 const SUB_TABS: { id: ShieldSubTab; icon: React.ReactNode }[] = [
   { id: 'Stability Certification', icon: <Award size={14} /> },
   { id: 'Smart BAAs', icon: <FileText size={14} /> },
   { id: 'PHI Access Gates', icon: <Lock size={14} /> },
   { id: 'Audit & Compliance', icon: <Activity size={14} /> },
   { id: 'Quarantine Zone', icon: <AlertTriangle size={14} /> },
+  { id: 'Documents', icon: <Database size={14} /> },
 ];
 
 export const ShieldPage = () => {
@@ -491,6 +563,100 @@ export const ShieldPage = () => {
               <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px' }}><AlertTriangle size={18} color="var(--danger)"/> Agent Circuit Breakers <SeededDataBadge /></h2>
               <div style={{ height: '300px' }}>
                 <NotionDatabase data={MOCK_QUARANTINE} columns={QUARANTINE_COLUMNS} title="Circuit Breakers" readOnly />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Documents' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', padding: '16px 20px', borderLeft: '4px solid var(--warning)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <AlertTriangle size={24} color="var(--warning)" style={{ flexShrink: 0 }} />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Not yet implemented</h3>
+                      <SeededDataBadge label="No backend exists" />
+                    </div>
+                    <p style={{ margin: '6px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+                      There is no document ingestion / vector-DB / RAG-indexing service anywhere in this
+                      monorepo yet -- every number and row below is fabricated for this demo, not a
+                      capability that exists today. See PRODUCTION_GAPS.md §7.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-secondary glass-panel-hover"
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.5, cursor: 'not-allowed', flexShrink: 0 }}
+                  disabled
+                  title="No document/RAG-indexing backend exists yet (see PRODUCTION_GAPS.md §7) -- there is nowhere for an uploaded file to go."
+                >
+                  <UploadCloud size={16} /> Upload Document
+                </button>
+              </div>
+
+              <div className="grid grid-3">
+                <div className="card glass-panel">
+                  <div className="card-header">
+                    <h3 className="card-title">Vector DB Size</h3>
+                    <Database size={20} className="text-muted" />
+                  </div>
+                  <div className="stat-value">142,850 <span className="stat-label">Chunks</span></div>
+                  <div className="text-sm text-success mt-2">Synchronized with Arweave Permanent Storage</div>
+                </div>
+                <div className="card glass-panel">
+                  <div className="card-header">
+                    <h3 className="card-title">Knowledge Graph Nodes</h3>
+                    <Network size={20} className="text-muted" />
+                  </div>
+                  <div className="stat-value">84,210</div>
+                  <div className="text-sm text-muted mt-2">Zero-Knowledge Proof Attested</div>
+                </div>
+                <div className="card glass-panel">
+                  <div className="card-header">
+                    <h3 className="card-title">Sync Status</h3>
+                    <RefreshCw size={20} color="var(--primary)" />
+                  </div>
+                  <div className="stat-value" style={{ color: 'var(--primary)' }}>Healthy</div>
+                  <div className="text-sm text-muted mt-2">Last sync: 2 mins ago</div>
+                </div>
+              </div>
+
+              <div className="card glass-panel">
+                <div className="card-header">
+                  <div>
+                    <h3 className="card-title">Vector Ingestion Throughput</h3>
+                    <p className="card-subtitle">Document chunks embedded and cryptographically signed over 7 days</p>
+                  </div>
+                </div>
+                <div style={{ height: '180px', marginTop: '20px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={DOCUMENT_SYNC_DATA}>
+                      <defs>
+                        <linearGradient id="colorDocSync" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="var(--success)" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="day" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-main)', borderRadius: '8px' }}
+                        itemStyle={{ color: 'var(--text-primary)' }}
+                      />
+                      <Area type="step" dataKey="chunks" stroke="var(--success)" strokeWidth={2} fillOpacity={1} fill="url(#colorDocSync)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div style={{ height: '400px' }}>
+                <NotionDatabase
+                  title="Recent Ingestions"
+                  data={MOCK_DOCUMENTS}
+                  columns={DOCUMENT_COLUMNS}
+                  readOnly={true}
+                />
               </div>
             </div>
           )}

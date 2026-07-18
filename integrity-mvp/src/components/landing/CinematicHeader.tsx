@@ -43,8 +43,8 @@ export const CinematicHeader = () => {
                     </button>
                 ) : (
                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                        <button onClick={() => { alert("Google Sign-In flow initiated."); navigate('/integrity'); window.scrollTo(0, 0); }} className="btn btn-outline" style={{ fontSize: '0.85rem', borderColor: 'rgba(255,255,255,0.3)', color: 'var(--text-primary)' }}>Sign In</button>
-                        <button onClick={() => { navigate('/integrity'); window.scrollTo(0, 0); }} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>Launch Dashboard</button>
+                        <button onClick={() => { navigate('/settings'); window.scrollTo(0, 0); }} className="btn btn-outline" style={{ fontSize: '0.85rem', borderColor: 'rgba(255,255,255,0.3)', color: 'var(--text-primary)' }}>Sign In</button>
+                        <button onClick={() => { navigate('/'); window.scrollTo(0, 0); }} className="btn btn-primary" style={{ fontSize: '0.85rem' }}>Launch Dashboard</button>
                     </div>
                 )}
             </div>
@@ -65,7 +65,7 @@ export const CinematicHeader = () => {
                         }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <button onClick={() => { navigate('/integrity'); setIsMobileMenuOpen(false); window.scrollTo(0, 0); }} className="btn btn-primary">Launch Dashboard</button>
+                            <button onClick={() => { navigate('/'); setIsMobileMenuOpen(false); window.scrollTo(0, 0); }} className="btn btn-primary">Launch Dashboard</button>
                             <button onClick={() => { window.open('https://github.com/XibalbaTechSol/integrity-master/tree/master/docs/wiki', '_blank'); setIsMobileMenuOpen(false); }} className="btn btn-outline" style={{ color: 'var(--text-primary)', borderColor: 'rgba(255,255,255,0.2)' }}>Protocol Blog</button>
                         </div>
                     </motion.div>

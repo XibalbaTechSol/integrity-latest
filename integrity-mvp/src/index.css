@@ -212,10 +212,115 @@
   --text-muted: #94a3b8;
   
   --accent-primary: #0ea5e9;
-  --accent-primary-hsl: 199 89% 48%; /* matches #0ea5e9 -- see :root's comment on why this can't be a var() */
+  --accent-primary-hsl: 199 89% 48%;
   --accent-hover: #0284c7;
 
   --font-sans: 'Roboto', system-ui, -apple-system, sans-serif;
+}
+
+[data-theme="notion"] {
+  /* Minimal Dark Theme (Notion-inspired) */
+  --bg-main-hsl: 0 0% 10%; /* #191919 */
+  --bg-sidebar-hsl: 0 0% 13%; /* #202020 */
+  --bg-panel-hsl: 0 0% 13%; /* #202020 */
+  --bg-panel-hover-hsl: 0 0% 17%; /* #2C2C2C */
+  --border-color-hsl: 0 0% 20%; /* #333333 */
+  
+  --bg-main: hsl(var(--bg-main-hsl));
+  --bg-sidebar: hsl(var(--bg-sidebar-hsl));
+  --bg-panel: hsl(var(--bg-panel-hsl));
+  --bg-panel-hover: hsl(var(--bg-panel-hover-hsl));
+  --border-color: hsl(var(--border-color-hsl));
+  
+  --text-primary: #ececec;
+  --text-secondary: #9b9b9b;
+  --text-muted: #737373;
+  
+  --accent-primary: #ffffff;
+  --accent-hover: #e0e0e0;
+  
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+[data-theme="notion"] .glass-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-theme="notion"] .glass-panel-hover:hover {
+  background: var(--bg-panel-hover);
+  border-color: hsla(0, 0%, 50%, 0.5);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+  transform: none;
+  transition: all 0.2s ease;
+}
+
+[data-theme="notion"] .btn,
+[data-theme="notion"] .btn-primary,
+[data-theme="notion"] .btn-secondary,
+[data-theme="notion"] .btn-outline {
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-transform: none;
+  letter-spacing: normal;
+  box-shadow: none;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+[data-theme="notion"] .btn-primary {
+  background-color: var(--text-primary);
+  color: var(--bg-main);
+  border: 1px solid var(--text-primary);
+  box-shadow: none;
+}
+
+[data-theme="notion"] .btn-primary:hover {
+  background-color: var(--text-secondary);
+  border-color: var(--text-secondary);
+  transform: none;
+  box-shadow: none;
+}
+
+[data-theme="notion"] .btn-primary:active {
+  background-color: var(--text-muted);
+  transform: none;
+}
+
+[data-theme="notion"] .btn-secondary:hover, 
+[data-theme="notion"] .btn-outline:hover {
+  border-color: var(--text-secondary);
+  background-color: var(--bg-panel-hover);
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
+}
+
+[data-theme="notion"] .panel-header,
+[data-theme="notion"] .card-header {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+[data-theme="notion"] .sidebar-item.active .sidebar-item-glow {
+  display: none;
+}
+
+[data-theme="notion"] .sidebar-item-icon {
+  transition: none;
+}
+
+[data-theme="notion"] .sidebar-item:hover .sidebar-item-icon {
+  transform: none;
+  color: var(--text-primary);
+}
+
+[data-theme="notion"] .sidebar-item.active .sidebar-item-icon {
+  color: var(--text-primary);
 }
   /* Typography Overrides */
 [data-font="inter"] {

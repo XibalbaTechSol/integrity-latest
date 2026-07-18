@@ -15,6 +15,7 @@ export const LandingPage = () => {
     const [isContactOpen, setIsContactOpen] = useState(false);
     const [contactType, setContactType] = useState<'investor' | 'developer'>('investor');
     const [isRegistryOpen, setIsRegistryOpen] = useState(false);
+    const [registryQuery, setRegistryQuery] = useState('');
 
 
 
@@ -97,7 +98,7 @@ sequenceDiagram
             {/* Hero Section */}
             <HeroSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} />
             
-                        <RegistryExplorer isOpen={isRegistryOpen} onClose={() => setIsRegistryOpen(false)} />
+                        <RegistryExplorer isOpen={isRegistryOpen} onClose={() => setIsRegistryOpen(false)} initialQuery={registryQuery} />
             
             {/* Business Proposal Content */}
             <div style={{ maxWidth: '1000px', margin: '0 auto', padding: '80px 24px', display: 'flex', flexDirection: 'column', gap: '64px' }}>
@@ -112,9 +113,12 @@ sequenceDiagram
                         <div style={{ flexShrink: 0, background: 'hsla(var(--bg-panel-hsl) / 0.3)', border: '1px solid hsla(var(--border-color-hsl) / 0.5)', padding: '24px', borderRadius: '16px', minWidth: '320px' }}>
                             <h3 style={{ fontSize: '1.1rem', marginBottom: '16px', color: 'var(--text-primary)' }}>Agent XNS Lookup</h3>
                             <div style={{ display: 'flex', gap: '8px' }}>
-                                <input 
-                                    type="text" 
-                                    placeholder="agent.xns" 
+                                <input
+                                    type="text"
+                                    placeholder="agent.xns"
+                                    value={registryQuery}
+                                    onChange={(e) => setRegistryQuery(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && setIsRegistryOpen(true)}
                                     style={{ flex: 1, background: 'hsla(var(--bg-body-hsl) / 0.5)', border: '1px solid hsla(var(--border-color-hsl) / 0.3)', padding: '12px 16px', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }}
                                 />
                                 <button

@@ -7,6 +7,7 @@ import { ORACLE_URL } from '../../config';
 interface RegistryExplorerProps {
     isOpen: boolean;
     onClose: () => void;
+    initialQuery?: string;
 }
 
 interface AgentResolution {
@@ -16,14 +17,23 @@ interface AgentResolution {
     primitives_source: string;
     did_document: Record<string, unknown> | null;
     ais: number | null;
+    zkProofVerified: boolean;
 }
 
-export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onClose }) => {
+export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onClose, initialQuery }) => {
     const [query, setQuery] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<AgentResolution | null>(null);
     const [error, setError] = useState<string | null>(null);
     const isMobile = useIsMobile();
+
+    // This component self-guards on `isOpen` (see the `if (!isOpen) return
+    // null` below) rather than being conditionally mounted by its parent, so
+    // a plain useState initializer would only ever pick up `initialQuery`
+    // once, on the very first render -- reset it every time the modal opens.
+    React.useEffect(() => {
+        if (isOpen && initialQuery) setQuery(initialQuery);
+    }, [isOpen, initialQuery]);
 
     // The oracle's GET /v1/agent/{id} accepts either a DID string or a
     // registered EVM address as {id} — a bare XNS handle (".intg") isn't a
@@ -50,9 +60,16 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
             const agent = await agentRes.json();
 
             let ais: number | null = null;
+            let zkProofVerified = false;
             const aisRes = await fetch(`${ORACLE_URL}/v1/agent/${encodeURIComponent(id)}/ais`);
             if (aisRes.ok) {
-                ais = (await aisRes.json()).ais;
+                const aisJson = await aisRes.json();
+                ais = aisJson.ais;
+                // Real flag from the oracle's AisResponse -- was previously fetched
+                // and discarded while the DID document panel unconditionally
+                // labeled itself "ZK-PROOFED", asserting a security property that
+                // was never actually checked. See PRODUCTION_GAPS.md §7/§12.
+                zkProofVerified = aisJson.zk_proof_verified === true;
             }
 
             setResult({
@@ -62,6 +79,7 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                 primitives_source: agent.primitives_source,
                 did_document: agent.did_document,
                 ais,
+                zkProofVerified,
             });
         } catch {
             setError("Unable to connect to the Xibalba Identity Oracle. Please try again.");
@@ -340,12 +358,12 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                                         }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <Shield size={12} style={{ color: '#10b981' }} />
+                                                <Shield size={12} style={{ color: result.zkProofVerified ? '#10b981' : 'rgba(255,255,255,0.3)' }} />
                                                 <span style={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.1em' }}>
-                                                    ZK-PROOFED DID DOCUMENT
+                                                    {result.zkProofVerified ? 'ZK-PROOFED DID DOCUMENT' : 'DID DOCUMENT'}
                                                 </span>
                                             </div>
-                                            <CheckCircle2 size={12} style={{ color: '#10b981' }} />
+                                            {result.zkProofVerified && <CheckCircle2 size={12} style={{ color: '#10b981' }} />}
                                         </div>
                                         <pre style={{
                                             padding: '16px',

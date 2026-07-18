@@ -33,14 +33,16 @@ services:
     environment:
       DATABASE_URL: postgres://integrity:integrity_dev_only@postgres:5432/integrity
       REDIS_URL: redis://redis:6379
-      RPC_URL: ${RPC_URL:-http://host.docker.internal:8545}
+      RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
       CHAIN_ID: ${CHAIN_ID:-31337}
-      DEPLOYMENTS_FILE: ${DEPLOYMENTS_FILE:-../deployments.local.json}
+      DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
       OTLP_GRPC_ADDR: 0.0.0.0:4317
     ports: ["8080:8080", "4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   bcc-middleware:
     build: ./bcc_middleware
@@ -48,6 +50,13 @@ services:
     environment:
       OPA_URL: http://opa:8181
       ORACLE_URL: http://oracle-backend:8080
+      RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
+      ANCHOR_SIGNER_PRIVATE_KEY: ${ORACLE_SIGNER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      DEPLOYMENTS_FILE: /deployments.local.json
+    volumes:
+      - ./deployments.local.json:/deployments.local.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports: ["8000:8000"]
 
   dashboard:

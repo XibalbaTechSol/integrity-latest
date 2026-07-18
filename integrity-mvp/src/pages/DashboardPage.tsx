@@ -35,34 +35,38 @@ const ResponsiveGridLayout = (props: any) => {
 
 const DEFAULT_WIDGETS = [
   { id: 'tri-metric', type: 'tri-metric' },
+  { id: 'cognition', type: 'cognition' },
   { id: 'gauge', type: 'gauge' },
   { id: 'costAnalytics', type: 'costAnalytics' },
   { id: 'latency', type: 'latency' },
+  { id: 'leaderboard', type: 'leaderboard' },
   { id: 'nodes', type: 'nodes' },
-  { id: 'events', type: 'events' }
+  { id: 'events', type: 'events' },
+  { id: 'sandbox', type: 'sandbox' }
 ];
 
 const DEFAULT_LAYOUTS = {
   lg: [
-    // h bumped 2 -> 3 (rowHeight=150, so 450px) -- at h:2 the widget's real
-    // content (KaTeX formula + real value + label, now that fabricated
-    // sparklines are gone) was clipped by the grid cell boundary. The rest
-    // of the grid reflows automatically underneath (react-grid-layout's
-    // default vertical compaction), no other entry's y needed adjusting.
     { i: 'tri-metric', x: 0, y: 0, w: 12, h: 3, minW: 6, minH: 3 },
-    { i: 'gauge', x: 0, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
-    { i: 'costAnalytics', x: 3, y: 2, w: 6, h: 2, minW: 4, minH: 2 },
-    { i: 'latency', x: 9, y: 2, w: 3, h: 2, minW: 3, minH: 2 },
-    { i: 'nodes', x: 0, y: 4, w: 6, h: 2, minW: 4, minH: 2 },
-    { i: 'events', x: 6, y: 4, w: 6, h: 2, minW: 4, minH: 2 }
+    { i: 'cognition', x: 0, y: 3, w: 12, h: 2, minW: 8, minH: 2 },
+    { i: 'gauge', x: 0, y: 5, w: 3, h: 2, minW: 3, minH: 2 },
+    { i: 'costAnalytics', x: 3, y: 5, w: 6, h: 2, minW: 4, minH: 2 },
+    { i: 'latency', x: 9, y: 5, w: 3, h: 2, minW: 3, minH: 2 },
+    { i: 'leaderboard', x: 0, y: 7, w: 4, h: 3, minW: 3, minH: 3 },
+    { i: 'nodes', x: 4, y: 7, w: 4, h: 3, minW: 4, minH: 2 },
+    { i: 'events', x: 8, y: 7, w: 4, h: 3, minW: 4, minH: 2 },
+    { i: 'sandbox', x: 0, y: 10, w: 12, h: 3, minW: 6, minH: 3 }
   ],
   md: [
     { i: 'tri-metric', x: 0, y: 0, w: 10, h: 3, minW: 6, minH: 3 },
-    { i: 'gauge', x: 0, y: 2, w: 4, h: 2, minW: 3, minH: 2 },
-    { i: 'costAnalytics', x: 4, y: 2, w: 6, h: 2, minW: 3, minH: 2 },
-    { i: 'latency', x: 0, y: 4, w: 4, h: 2, minW: 3, minH: 2 },
-    { i: 'nodes', x: 4, y: 4, w: 6, h: 2, minW: 4, minH: 2 },
-    { i: 'events', x: 0, y: 6, w: 10, h: 2, minW: 4, minH: 2 }
+    { i: 'cognition', x: 0, y: 3, w: 10, h: 2, minW: 8, minH: 2 },
+    { i: 'gauge', x: 0, y: 5, w: 4, h: 2, minW: 3, minH: 2 },
+    { i: 'costAnalytics', x: 4, y: 5, w: 6, h: 2, minW: 3, minH: 2 },
+    { i: 'leaderboard', x: 0, y: 7, w: 5, h: 3, minW: 3, minH: 3 },
+    { i: 'nodes', x: 5, y: 7, w: 5, h: 3, minW: 4, minH: 2 },
+    { i: 'events', x: 0, y: 10, w: 5, h: 3, minW: 4, minH: 2 },
+    { i: 'latency', x: 5, y: 10, w: 5, h: 3, minW: 3, minH: 2 },
+    { i: 'sandbox', x: 0, y: 13, w: 10, h: 3, minW: 6, minH: 3 }
   ]
 };
 
@@ -79,8 +83,8 @@ export const DashboardPage = () => {
 
   // Initial load from LocalStorage
   useEffect(() => {
-    const savedWidgets = localStorage.getItem('integrity_dashboard_widgets_v3');
-    const savedLayouts = localStorage.getItem('integrity_dashboard_layouts_v3');
+    const savedWidgets = localStorage.getItem('integrity_dashboard_widgets_v4');
+    const savedLayouts = localStorage.getItem('integrity_dashboard_layouts_v4');
     
     if (savedWidgets && savedLayouts) {
       try {
@@ -164,16 +168,16 @@ export const DashboardPage = () => {
   };
 
   const handleSave = () => {
-    localStorage.setItem('integrity_dashboard_widgets_v3', JSON.stringify(widgets));
-    localStorage.setItem('integrity_dashboard_layouts_v3', JSON.stringify(layouts));
+    localStorage.setItem('integrity_dashboard_widgets_v4', JSON.stringify(widgets));
+    localStorage.setItem('integrity_dashboard_layouts_v4', JSON.stringify(layouts));
     setIsEditing(false);
   };
 
   const handleResetDefault = () => {
     setWidgets(DEFAULT_WIDGETS);
     setLayouts(DEFAULT_LAYOUTS);
-    localStorage.removeItem('integrity_dashboard_widgets_v3');
-    localStorage.removeItem('integrity_dashboard_layouts_v3');
+    localStorage.removeItem('integrity_dashboard_widgets_v4');
+    localStorage.removeItem('integrity_dashboard_layouts_v4');
     setIsEditing(false);
   };
 
@@ -218,7 +222,7 @@ export const DashboardPage = () => {
 
   return (
     <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-      <TopBar title="Interactive Dashboard Engine">
+      <TopBar title="Intelligence Command">
         {isEditing && (
           <button 
             className="btn btn-secondary glass-panel-hover"
@@ -354,7 +358,7 @@ export const DashboardPage = () => {
                     isEditing={isEditing}
                     onDelete={() => handleDeleteWidget(widget.id)}
                   >
-                    <WidgetComponent 
+                    <WidgetComponent
                       aisDistribution={aisDistribution}
                       highIntegrityPct={highIntegrityPct}
                     />

@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { TraceNode, type TraceNodeType } from '../components/TraceNode';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Legend } from 'recharts';
 import { TraceAnalysisPanel } from '../components/TraceAnalysisPanel';
+import { CompareTracesPanel } from '../components/traces/CompareTracesPanel';
 import { ReactFlow, Background, Controls, useNodesState, useEdgesState, BackgroundVariant, type Edge, type Node, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
@@ -109,7 +110,7 @@ function formatStreamTime(iso: string): string {
   return `${Math.round(seconds / 60)}m ago`;
 }
 
-export const ChainOfThoughtPage = () => {
+export const TraceAnalyticsPage = () => {
   const { selectedAgent } = useAgent();
   const [activeTab, setActiveTab] = useState(1);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -120,11 +121,35 @@ export const ChainOfThoughtPage = () => {
   const [traceTree, setTraceTree] = useState<{ roots: SpanTreeNode[]; span_count: number; truncated: boolean } | null>(null);
   const [traceError, setTraceError] = useState<string | null>(null);
 
-  // Real SSE stream (all agents) — see backend/src/stream.rs. Doubles as both the Live
-  // Stream tab's data source and how we discover trace_ids to offer in the Historical
-  // Traces tab (there's no "list recent traces" endpoint, only get-by-id).
+  // Real SSE stream (all agents) — see backend/src/stream.rs. Feeds the Live Stream
+  // tab directly, and also contributes any trace freshly arriving during this
+  // session to the Historical Traces list below.
   const { events, connected } = useOracleStream(selectedAgent?.id, 100);
   const displayedEvents = isLive ? events : events.slice(0, 0);
+
+  // Historical trace discovery — GET /v1/agent/{id}/otel/traces (previously the ONLY
+  // discovery mechanism was watching the live stream while a tab happened to be open,
+  // so any trace generated earlier was permanently invisible despite being real data
+  // already sitting in otel_spans; see backend::handlers::get_recent_traces).
+  const [historicalTraces, setHistoricalTraces] = useState<Array<[string, string]>>([]);
+  useEffect(() => {
+    if (!selectedAgent) {
+      setHistoricalTraces([]);
+      return;
+    }
+    let cancelled = false;
+    oracle
+      .getRecentTraces(selectedAgent.id, 20)
+      .then((rows) => {
+        if (!cancelled) setHistoricalTraces(rows.map((r) => [r.trace_id, r.name]));
+      })
+      .catch(() => {
+        if (!cancelled) setHistoricalTraces([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const recentTraceIds = useMemo(() => {
     const seen = new Map<string, string>(); // trace_id -> most recent span name
@@ -133,8 +158,13 @@ export const ChainOfThoughtPage = () => {
         if (!seen.has(e.trace_id)) seen.set(e.trace_id, e.name);
       }
     }
+    // Live-stream-discovered traces take precedence (most recent), then fill in
+    // with the historical list for anything not already seen this session.
+    for (const [traceId, name] of historicalTraces) {
+      if (!seen.has(traceId)) seen.set(traceId, name);
+    }
     return Array.from(seen.entries());
-  }, [events, selectedAgent]);
+  }, [events, selectedAgent, historicalTraces]);
 
   useEffect(() => {
     if (!selectedTraceId && recentTraceIds.length > 0) {
@@ -192,10 +222,10 @@ export const ChainOfThoughtPage = () => {
 
   return (
     <div className="main-content" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <TopBar title="AI Chain of Thought Traces" />
+      <TopBar title="Trace Analytics" />
 
       <div className="custom-scrollbar" style={{ padding: '0 24px', display: 'flex', gap: '24px', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', overflowX: 'auto' }}>
-        {['Live Stream', 'Historical Traces', 'Metrics', 'Time-Travel Debugger'].map((tab, idx) => (
+        {['Live Stream', 'Historical Traces', 'Metrics', 'Time-Travel Debugger', 'Compare Traces'].map((tab, idx) => (
           <div
             key={tab}
             onClick={() => setActiveTab(idx)}
@@ -368,9 +398,17 @@ export const ChainOfThoughtPage = () => {
             </div>
           )}
 
+          {/* TAB 4: COMPARE TRACES PANEL */}
+          {activeTab === 4 && (
+            <div style={{ flex: 1, padding: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <CompareTracesPanel />
+            </div>
+          )}
+
         </div>
 
-        {/* Side Panel: Trace Details */}
+        {/* Side Panel: Trace Details (Only shown for active tabs 1 and 3, not 4) */}
+        {activeTab !== 4 && (
         <div className="card" style={{ flex: '1 1 30%', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <h2 className="card-title" style={{ marginBottom: '24px' }}>Trace Details</h2>
 
@@ -404,6 +442,7 @@ export const ChainOfThoughtPage = () => {
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Select a span node from the Historical Traces tab to see its real attributes here.</div>
           )}
         </div>
+        )}
 
       </div>
     </div>

@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 integrity-demo = "integrity_demo.main:main"
+integrity-heartbeat = "integrity_demo.heartbeat:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/integrity_demo"]

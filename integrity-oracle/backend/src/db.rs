@@ -736,6 +736,94 @@ pub async fn get_recent_evaluations(
 }
 
 // ---------------------------------------------------------------------------------
+// audit_log (real durable BCC-middleware ALLOW/DENY decision trail, see migration
+// 0006's header comment for why this table exists — no other component had durable
+// storage for the protocol's most audit-worthy event type before this).
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AuditLogRow {
+    pub id: Uuid,
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_audit_log(
+    pool: &PgPool,
+    agent_id: Option<&str>,
+    source: &str,
+    event_type: &str,
+    decision: &str,
+    reason_code: Option<&str>,
+    detail: Option<&str>,
+    intent_type: Option<&str>,
+    metadata: &serde_json::Value,
+) -> Result<Uuid, sqlx::Error> {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO audit_log (id, agent_id, source, event_type, decision, reason_code, detail, intent_type, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(source)
+    .bind(event_type)
+    .bind(decision)
+    .bind(reason_code)
+    .bind(detail)
+    .bind(intent_type)
+    .bind(metadata)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn get_recent_audit_log(
+    pool: &PgPool,
+    agent_id: Option<&str>,
+    limit: i64,
+) -> Result<Vec<AuditLogRow>, sqlx::Error> {
+    match agent_id {
+        Some(aid) => {
+            sqlx::query_as::<_, AuditLogRow>(
+                r#"
+                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
+                FROM audit_log
+                WHERE agent_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                "#,
+            )
+            .bind(aid)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, AuditLogRow>(
+                r#"
+                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
+                FROM audit_log
+                ORDER BY created_at DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------
 // otel_spans (real OTLP receiver storage, see otlp.rs) + time-bucketed history
 // (PRODUCTION_GAPS.md §1 items 2-3) — see migration 0004's header comment for why
 // this table exists separately from telemetry_events and is never an AIS input.
@@ -793,6 +881,61 @@ pub async fn insert_otel_span(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RecentTraceRow {
+    pub trace_id: String,
+    pub name: String,
+    pub start_time: DateTime<Utc>,
+}
+
+/// One row per trace's root span (`parent_span_id IS NULL`), most recent
+/// first -- backs `GET /v1/agent/{id}/otel/traces`, the "list recent traces"
+/// endpoint that never existed until now (frontend previously could only
+/// discover trace_ids by watching the live SSE stream while a tab was open,
+/// so any trace generated before that tab was open was permanently
+/// invisible to `GET /v1/traces/{trace_id}` despite being real, queryable
+/// data). A trace with multiple genuine roots (see trace_tree.rs's handling
+/// of that case) surfaces once per root here, which is an acceptable
+/// simplification for a "recent traces" picker, not a correctness issue for
+/// `get_trace_tree` itself (which still reconstructs every root).
+pub async fn get_recent_root_spans(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<RecentTraceRow>, sqlx::Error> {
+    sqlx::query_as::<_, RecentTraceRow>(
+        r#"
+        SELECT trace_id, name, start_time
+        FROM otel_spans
+        WHERE agent_id = $1 AND parent_span_id IS NULL
+        ORDER BY start_time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Every real span for one agent, most recent first, flat (not grouped into
+/// trace trees) -- backs the unified "everything logged" audit-log merge in
+/// `get_audit_log` (see that handler's doc comment). Deliberately not
+/// restricted to root spans like `get_recent_root_spans`: a manual-debugging
+/// log view needs the child spans (`tool_call.*`, `llm_call.*`) too, not
+/// just each trace's top-level name.
+pub async fn get_recent_spans_flat(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
+    sqlx::query_as::<_, OtelSpanRow>(
+        r#"
+        SELECT id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, created_at
+        FROM otel_spans
+        WHERE agent_id = $1
+        ORDER BY start_time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 /// Every span belonging to one trace, in start-time order — the shape

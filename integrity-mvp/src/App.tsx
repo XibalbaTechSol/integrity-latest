@@ -7,18 +7,14 @@ import { DashboardPage } from './pages/DashboardPage';
 import { IdentityPage } from './pages/IdentityPage';
 import { ContractsPage } from './pages/ContractsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { SdkTelemetryPage } from './pages/SdkTelemetryPage';
-import { ExchangePage } from './pages/ExchangePage';
-import { ChainOfThoughtPage } from './pages/ChainOfThoughtPage';
-import { CompareTracesPage } from './pages/CompareTracesPage';
 import { FinancePage } from './pages/FinancePage';
-import { IntelligencePage } from './pages/IntelligencePage';
+import { TraceAnalyticsPage } from './pages/TraceAnalyticsPage';
+import { SystemDiagnosticsPage } from './pages/SystemDiagnosticsPage';
 import { ShieldPage } from './pages/ShieldPage';
 import { AgentsPage } from './pages/AgentsPage';
-import { DocumentsPage } from './pages/DocumentsPage';
-import { AuditPage } from './pages/AuditPage';
 import { LandingPage } from './pages/LandingPage';
 import './index.css';
+import 'katex/dist/katex.min.css';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AgentProvider } from './contexts/AgentContext';
@@ -26,6 +22,7 @@ import { LoggerProvider } from './contexts/LoggerContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ToastManager } from './components/Toast';
 import { CommandPalette } from './components/CommandPalette';
+import { DevAutoLogin } from './components/DevAutoLogin';
 
 const AppContent = () => {
   const location = useLocation();
@@ -40,16 +37,11 @@ const AppContent = () => {
         <Route path="/identity" element={<IdentityPage />} />
         <Route path="/contracts" element={<ContractsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/telemetry" element={<SdkTelemetryPage />} />
-        <Route path="/exchange" element={<ExchangePage />} />
-        <Route path="/chain-of-thought" element={<ChainOfThoughtPage />} />
-        <Route path="/compare-traces" element={<CompareTracesPage />} />
         <Route path="/finance" element={<FinancePage />} />
-        <Route path="/intelligence" element={<IntelligencePage />} />
+        <Route path="/traces" element={<TraceAnalyticsPage />} />
+        <Route path="/diagnostics" element={<SystemDiagnosticsPage />} />
         <Route path="/shield" element={<ShieldPage />} />
         <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </div>
   );
@@ -66,6 +58,7 @@ const App = () => {
             <AgentProvider>
               <ToastProvider>
                 <Router>
+                  <DevAutoLogin />
                   <CommandPalette />
                   <AppContent />
                   <ToastManager />
