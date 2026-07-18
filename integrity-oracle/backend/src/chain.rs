@@ -335,7 +335,10 @@ impl ChainClient {
             .resolveDID(did.to_string())
             .call()
             .await
-            .map_err(|_| ChainError::UnknownDid(did.to_string()))?;
+            .map_err(|err| {
+                tracing::error!("resolveDID contract call failed for DID {}: {:?}", did, err);
+                ChainError::UnknownDid(did.to_string())
+            })?;
         if !record.exists {
             return Err(ChainError::UnknownDid(did.to_string()));
         }

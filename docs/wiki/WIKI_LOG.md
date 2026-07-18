@@ -1903,3 +1903,449 @@ had been captured.
   Also added the `demo` Makefile target, which never existed despite being
   referenced in three docs. Full writeup: `PRODUCTION_GAPS.md` §9. Updated
   `entities/integrity-mvp.md` accordingly.
+
+## [2026-07-16] update | Resolved capital allocation blocker and completed closed-loop demo verification
+
+- **Dynamic Nonces in Demo Scenario**: Replaced hardcoded `nonce=1` in `integrity-mvp/demo/src/integrity_demo/main.py` with `NonceStore` from `integrity_sdk.bcc` to fetch the next valid nonce dynamically based on on-disk files. This prevents `BCC_NONCE_REPLAY` rejections in `bcc_middleware` on consecutive runs.
+- **Google Gemini Compatibility**: Added support for mapping OpenAI client calls to `gemini-2.5-flash` at `generativelanguage.googleapis.com` if `GEMINI_API_KEY` is present.
+- **Oracle and Middleware Local Integrations**: Resolved `bcc-middleware` configuration gaps in `docker-compose.yml` by mounting deployments JSON and configuring the `ANCHOR_SIGNER_PRIVATE_KEY` with the actual 32-byte private key instead of the EVM address, fixing `reputation/sync` transaction submission. Also improved error logging in the oracle's DID resolver (`chain.rs`).
+- **End-to-End Loop Validation**: Manually seeded the `trading_agent` AIS score to `100` via on-chain `updateScore` call from the oracle signer key on local Anvil. Verified that the `capital_allocation_agent` successfully routes the allocation on-chain, passes both OPA policy and `bcc_middleware` intent checks, and finishes with allocation ID `0`. OTel telemetry spans are verified to be fully captured in TimescaleDB (`otel_spans` hypertable count = 172).
+
+- **Interactive Flame Graph Visualization**: Expanded the `/compare-traces` and `/chain-of-thought` features by replacing the profile-extension placeholder stub with a fully functional HTML/CSS flame graph component that maps executing spans to horizontal call bars based on time-duration percentages, supporting interactive span inspections on click. Verified clean typecheck and production build of `integrity-mvp`.
+- **Fresh-Chain Verification**: Successfully executed `make chain` to restart Anvil, cleared cache DIDs locally, and verified a completely clean end-to-end run where all 4 agents registered perfectly, the score of the new `trading_agent` was set, and capital allocation completed successfully with allocation ID `0`.
+
+## [2026-07-16] update | Post-consolidation cleanup and live browser validation of TraceAnalyticsPage/SystemDiagnosticsPage
+
+A prior pass this same day consolidated six frontend pages (`AuditPage`,
+`ChainOfThoughtPage`, `CompareTracesPage`, `ExchangePage`,
+`IntelligencePage`, `SdkTelemetryPage`) into two new ones
+(`TraceAnalyticsPage.tsx` at `/traces`, `SystemDiagnosticsPage.tsx` at
+`/diagnostics`) but left some references stale. This pass closed those
+gaps and browser-verified the consolidated pages against a real local
+stack rather than trusting that a page rename preserved the underlying
+real data wiring.
+
+- **Dangling nav references fixed.** `CommandPalette.tsx`'s "Go to
+  Telemetry"/"View Audit Logs" commands still `navigate()`d to
+  `/telemetry`/`/audit`, neither a real route — repointed both at
+  `/diagnostics`, added a missing "Go to Trace Analytics" (`/traces`)
+  command. `e2e/smoke.spec.ts`'s `ROUTES` array still listed 7 routes that
+  no longer exist (`/cognition`, `/telemetry`, `/exchange`,
+  `/chain-of-thought`, `/compare-traces`, `/intelligence`, `/audit`) —
+  rewritten to the real 11-route list.
+- **Real e2e test bug found and fixed.** `waitUntil: 'networkidle'` in
+  that same spec can never resolve on `/` or `/traces` — both hold an open
+  SSE (`EventSource`) connection to the oracle's live stream by design.
+  Switched to `waitUntil: 'load'` + a 1s settle window; all 13 e2e tests
+  now pass against the real local stack.
+- **Removed leftover debug scripts** (`inspect_dom.cjs`, `test_html.cjs`,
+  `test_katex.cjs`, `test_parse.cjs`, `test_string.cjs`,
+  `test_warning.cjs`) from `integrity-mvp/` root — ad-hoc, untracked, not
+  part of the real test suite.
+- **Live-verified the full demo→oracle→frontend pipeline survived the page
+  rename**, not just by reading code: brought up local anvil + full
+  `docker-compose` stack (`postgres`/`redis`/`opa`/`oracle-backend`/
+  `bcc-middleware`/`userapi`, dashboard run natively via `npm run dev`
+  instead — the dockerized `dashboard` container needs an explicit rebuild
+  to pick up source changes, a trap already documented in
+  `PRODUCTION_GAPS.md` §10). Generated a real 3-span nested OTel trace via
+  the SDK's `traceable()` API against the live oracle and confirmed
+  `TraceAnalyticsPage`'s Live Stream tab shows it arriving in real time
+  over SSE and the Historical Traces tab renders the correct DAG with real
+  span attributes; confirmed `SystemDiagnosticsPage`'s telemetry volume
+  chart reflects the same real data. Walked all 11 real routes in a live
+  browser — zero console errors on any of them.
+- **Real bug found and fixed via the live browser pass**:
+  `FinancePage.tsx`'s live ITK balance was off by 10^18. `GET
+  /v1/agent/{id}/wallet`'s `itk_balance` is deliberately the raw on-chain
+  `U256` wei-scale string (ITK is an 18-decimal ERC-20), but the frontend
+  used it directly as whole-token units, rendering "9,999,000,...,000 ITK"
+  and a "$12,498,750,...,000.00" portfolio value. Fixed with
+  `formatUnits(BigInt(itkBalance), 18)` (`viem`); re-verified live —
+  portfolio value now shows "$35,456.84".
+- **Two more undisclosed-mock bugs found by sweeping already-validated pages
+  for hardcoded values with no `SeededDataBadge`** (per an explicit
+  mid-session ask to close remaining mock gaps, not just verify the new
+  pages): `IdentityPage.tsx` hardcoded `ais = 9.5`, `tier = 'AAA'`, and
+  `teeVerified = true` unconditionally — the last one a false
+  hardware-attestation claim ("TEE Status: Verified (Nitro)") for every
+  agent despite `NitroAttestationGenerator` raising `NotImplementedError`
+  everywhere else in this codebase. Wired to real `oracle.getAis()` +
+  `ShieldPage`'s existing `stabilityTier()` banding function, and
+  `teeVerified` corrected to `false`. Dashboard's `CognitionWidget` ("LLM
+  Routing Layer"/"Intent Commitments"/"Memory & Context") was 100%
+  hardcoded with zero disclosure, unlike its sibling `ThroughputWidget` in
+  the same file — confirmed no backend capability exists for any of the
+  three (no LLM-routing tracking, no latency field in `telemetry_events`,
+  no RAG/tool-execution metric anywhere in this monorepo), so added
+  `SeededDataBadge` to all three rather than fabricate a partial wire-up.
+  Re-verified live: Identity page now shows "AIS Score 500.0 / 1000",
+  "Verification Tier B", "TEE Status: Not Attested" (matching this agent's
+  real score everywhere else in the app); Dashboard's Cognition cards now
+  carry visible seeded-data badges. Full writeup: `PRODUCTION_GAPS.md` §7.
+- Updated `entities/integrity-mvp.md` with a correction block covering the
+  real route list and page consolidation (it still described 16 routes and
+  the six deleted page names throughout). `entities/integrity-oracle.md`
+  didn't reference any of the deleted page names — no change needed there.
+  Full writeup: `PRODUCTION_GAPS.md` §7 (appended, not rewritten).
+- Regression suite re-run clean after all changes: `npm run build`/`npm
+  run lint` (no new warnings in touched files), 13/13 Playwright e2e,
+  `cargo test --workspace --lib` (80 oracle tests), `pytest tests/unit/`
+  (108 SDK tests).
+
+## [2026-07-16] update | Full undisclosed-mock sweep across every remaining route
+
+Continuation of the same session, on explicit request to keep sweeping for
+undisclosed mocks beyond the pages already covered above. Dispatched 3
+parallel investigation agents to cover every page/component not yet
+checked this session (`ContractsPage`, `SettingsPage`, `ShieldPage`'s
+non-Stability tabs, `FinancePage`'s non-Wallet tabs, `AgentsPage`,
+`TopBar`, `Sidebar`, every widget in `WidgetRegistry.tsx`,
+`DashboardPage`). Found and fixed six more undisclosed-mock bugs beyond
+the two already logged above (`FinancePage`'s ITK scaling bug,
+`IdentityPage`'s fake AIS/tier/TEE-attestation claim):
+
+- `ContractsPage.tsx` — the entire Build/Deploy/function-call IDE flow
+  fabricates a `Math.random()` contract address and logs it as a genuine
+  Base Sepolia deployment, with zero disclosure. No compile/deploy backend
+  exists anywhere in this monorepo, so the fix is a persistent
+  `SeededDataBadge` on the IDE toolbar, not a real compiler.
+- `TopBar.tsx` — the notification bell was a fixed 3-item fake array with
+  no backing endpoint (`oracle.ts`/`userapi.ts` have neither). Disclosed
+  in the dropdown header.
+- `Sidebar.tsx` — "Admin User" / "Manager" profile footer was hardcoded
+  with no auth/session wiring and no `role` field anywhere in
+  `userapi.ts`'s `UserResponse`. Disclosed rather than building new
+  global-auth-state plumbing that's out of scope for this pass.
+- Dashboard's `gauge` widget (`WidgetRegistry.tsx`) silently rendered
+  fake `94%`/`1420`/`230`/`12` fallback numbers with zero disclosure
+  whenever real `aisDistribution`/`highIntegrityPct` hadn't loaded —
+  unlike every sibling widget in the same file. Real data was already
+  flowing in from `DashboardPage`; fix was just the same conditional
+  `SeededDataBadge` pattern its siblings already use.
+- `FinancePage.tsx`'s "Wallet & Portfolio" hero remained mostly
+  fabricated even after the ITK fix: hardcoded ETH/USDC balances and all
+  three prices, a static daily-change line, a static 7-day trend chart,
+  and a hardcoded `0x7F...3B92` address chip instead of the real
+  connected wallet address (`useAccount()`, already imported/used
+  elsewhere in the same file). Fixed the address chip for real; disclosed
+  the rest (no ETH/USDC balance or price-feed endpoint exists anywhere in
+  this monorepo).
+- Confirmed clean, no changes needed: `SettingsPage.tsx`, `ShieldPage.tsx`'s
+  Smart BAAs/PHI Access Gates/Audit & Compliance/Quarantine Zone tabs,
+  `MarketsEscrowPanel.tsx` (Finance's "A2A Markets & Escrow" tab),
+  `AgentsPage.tsx`'s stat cards/table. One lower-severity issue flagged
+  but not fixed: `AgentsPage.tsx`'s "Deploy"/"Verify & Claim" buttons have
+  no `onClick` and no disabled/tooltip disclosure, unlike every other
+  not-yet-wired button elsewhere in the app — a dead-button gap, not a
+  fabricated-data one.
+
+Full writeup: `PRODUCTION_GAPS.md` §7. Re-verified live in a browser after
+every fix (all badges render, no console errors) and with the full
+regression suite: `npm run build`/`tsc -b --noEmit`/`npm run lint` clean,
+13/13 Playwright e2e green.
+
+## [2026-07-16] update | Ran the real demo scenario engine end-to-end and found two more real bugs — spans were silently dropped, then found to be tagged with the wrong identity key
+
+On explicit request to actually run the demo suite and validate telemetry
+reaches the frontend (not just re-verify already-known-good paths).
+
+The demo's 4 persona wallets (`~/.integrity/wallet/{healthcare_agent,
+prediction_market_agent,trading_agent,capital_allocation_agent}`) already
+had keystores from a prior session encrypted with an unknown password —
+per the user's explicit choice, reset both that directory and its paired
+`~/.integrity/did/<persona>/` cache (moved aside to `.bak`, not deleted)
+so the demo could register 4 fully fresh identities rather than guessing
+or recovering a credential.
+
+Running the real engine against this fresh local anvil + full
+`docker-compose` stack surfaced two real bugs that the prior "ran it
+end-to-end" pass (see the `PRODUCTION_GAPS.md` §9 entry from earlier this
+session) had NOT actually caught, because the oracle-attribution fix
+verified in that pass checked the spans existed with the right resource
+attribute *shape*, not that a normal run of the fixed code would still
+reach the oracle at all:
+
+1. **Spans were silently dropped on every single run.** `main.py` never
+   called `force_flush()`/`shutdown()` on its per-agent `TracerProvider`s
+   before the process exited — `BatchSpanProcessor` buffers and only
+   exports on a timer, and this is a short-lived CLI script that exits
+   immediately after finishing. Confirmed via a minimal isolated repro of
+   the same pattern (worked once flush was added), then via `otel_spans`
+   coming back empty for freshly-registered agents despite spans genuinely
+   existing in-process. Fixed by tracking every `TracerProvider` (not just
+   the `Tracer` handles) and flushing+shutting all of them down in a
+   `finally` around `main()`'s scenario run.
+2. **Even flushed, every span was tagged with the internal persona
+   short-name (`"capital_allocation_agent"`) instead of the real DID.**
+   The oracle's telemetry endpoints and every frontend consumer
+   (`AgentContext`, `TraceAnalyticsPage`, `SystemDiagnosticsPage`) key
+   exclusively by DID — spans stored under the short-name are permanently
+   invisible to any per-agent view, even though the rows are right there
+   in the table. Fixed by resolving the real DID via
+   `load_or_create_did(a["id"])` (pure local keypair load, no chain call)
+   before opening each registration span, and threading that DID through
+   to the capital-allocator's tool-call/conversation spans too.
+
+Also confirmed, not a bug: a freshly-registered agent legitimately fails
+`A2ACapitalPool`'s `AisTooLow(50, 0)` gate when another agent tries to
+allocate it capital — `bcc_middleware`'s `scoring_loop.py` continuously
+re-syncs each agent's real oracle-computed score on-chain, so a manual
+`updateScore` seed (the same trick a much earlier session used, see the
+2026-07-16 "Resolved capital allocation blocker" entry above) gets
+overwritten by the next real sync cycle within seconds now that the sync
+loop is live in this stack. Earning a real score legitimately requires
+real telemetry over time — this is the reputation-sync mechanism working
+as designed, not a demo bug.
+
+Re-verified for real after both fixes: `GET /v1/agent/{did}/otel/volume`
+and `GET /v1/traces/{trace_id}` both return correct span data keyed by
+the real DID for all 4 freshly-registered agents (confirmed via direct
+Postgres queries and real HTTP calls, not just re-running without error).
+`SystemDiagnosticsPage`'s Telemetry & Span Volume chart renders the real
+3-span count for `capital_allocation_agent`'s real DID live in the
+browser. Full writeup: `PRODUCTION_GAPS.md` §9. `uv run pytest tests/`
+(demo package, 6 tests) and `integrity-sdk`'s unit suite (108 tests) both
+re-run clean after the change.
+
+## [2026-07-16] update | Merged DocumentsPage into ShieldPage, removed the standalone route
+
+Per explicit request: `DocumentsPage.tsx`'s content (vector-DB size,
+knowledge-graph nodes, sync status, ingestion-throughput chart, document
+table) was always HIPAA/clinical-flavored by its own fake filenames
+(`HIPAA_Compliance_Guidelines_2026.pdf`, `Patient_Onboarding_Protocol.docx`)
+— it belongs on the compliance page, not a separate top-level nav item.
+Moved verbatim into a new "Documents" tab in `ShieldPage.tsx`'s
+`SUB_TABS`, preserving the exact same honest disclosure (`SeededDataBadge`,
+"Not yet implemented" banner — nothing was silently upgraded to "real" in
+the move, no document/RAG-indexing backend exists anywhere in this
+monorepo). Removed `DocumentsPage.tsx`, the `/documents` route, and the
+Sidebar nav entry; `e2e/smoke.spec.ts`'s route list dropped to 10 entries.
+`npm run build`/`tsc -b --noEmit`/`npm run lint` clean, 12/12 Playwright
+e2e green, re-verified live in a browser: the merged tab renders under
+Shield, `/documents` no longer resolves. Full writeup: `PRODUCTION_GAPS.md`
+§7.
+
+
+## [2026-07-16] update | Real audit-log system: new bcc_middleware→oracle write path, AuditLogsPanel now genuine
+
+Per explicit request ("fix audit logs to be a genuine source of truth ...
+it should log every event in the system") plus a follow-up ("agent
+selector should be working to determine which data to display").
+`AuditLogsPanel.tsx` was previously 100% fake — `LoggerContext`'s three
+hardcoded rows, only ever appended to by the mock `ActuarialHub.tsx`.
+Investigation found the real gap: `bcc_middleware` (real OPA ALLOW/DENY
+policy decisions) had zero durable storage anywhere in the stack — deny
+reasons only ever lived in the HTTP response body, allow-decisions only
+as an opaque on-chain Merkle leaf hash. Added a new write path, not just
+a read endpoint: `audit_log` table (`integrity-oracle` migration 0006),
+`POST /v1/audit/ingest` + `GET /v1/audit-log` oracle endpoints (merges
+`audit_log` with an agent's flagged `telemetry_events`), and a new
+`bcc_middleware/app/audit.py` that fire-and-forget-reports every
+intercept decision (allow AND deny) from `run_intercept`. Frontend
+`AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to
+`AgentContext`'s global TopBar agent selector (matching
+`SystemDiagnosticsPage`'s sibling tabs) — `SeededDataBadge` disclosure
+removed, this is genuinely real now. Verified live: rebuilt/restarted the
+dockerized `oracle-backend`/`bcc-middleware` images (same stale-image trap
+as the `dashboard` container), sent a real malformed-signature commitment
+via `curl` straight to `bcc_middleware`, confirmed the resulting
+`BCC_INVALID_SIGNATURE` deny row via both a direct oracle API call and
+live in the browser at `/diagnostics` → Audit Logs, and confirmed
+switching the agent selector correctly re-scopes the query (a
+never-probed agent shows an honestly empty table, not stale data). Full
+writeup: `PRODUCTION_GAPS.md` §11.
+
+## [2026-07-16] update | Dashboard/Trace Analytics empty-data bugs fixed, admin user created
+
+Two user reports in the same session ("everything is empty" on the
+dashboard, "trace analytics is completely empty no data") both traced to
+real bugs against real backend data, not correctly-empty states.
+Recharts' `<ResponsiveContainer>` was found permanently stuck at an 8x8
+fallback SVG size on the "Cost & Token Analytics" widget inside this
+dashboard's react-grid-layout grid — confirmed via direct DOM
+measurement that the real grid cell was correctly sized while Recharts'
+own internal state stayed frozen; three plausible fixes (remount-on-real-width,
+nudging `layouts` state, Recharts' own `debounce` prop) were each tested
+live and ruled out before landing on a real fix: a `useMeasuredSize` hook
+that runs an independent `ResizeObserver` and feeds explicit pixel
+width/height straight to the chart, bypassing `ResponsiveContainer`'s
+broken measurement entirely. (Caught and fixed a self-inflicted infinite
+setState loop in that hook's first draft before it shipped.) Separately,
+Trace Analytics' "Historical Traces" tab had no way to discover a
+trace_id older than the current browser tab — its own code comment
+already documented "there's no list-recent-traces endpoint, only
+get-by-id." Added `GET /v1/agent/{id}/otel/traces`
+(`backend::handlers::get_recent_traces`) and wired the frontend to merge
+it with the live-stream-discovered list. Both verified live end-to-end
+against real oracle data, zero console errors. Also registered a real
+`integrity-userapi` account (`admin@xibalba.dev`) and linked all 13
+demo-registered agents to it via `POST /me/agents` — confirmed via
+`GET /me/agents`. Full writeup: `PRODUCTION_GAPS.md` §12.
+
+## [2026-07-16] update | Continued mock sweep: 6 findings across 5 files, fixed (not just badged)
+
+Per "keep sweeping the other pages for undisclosed mocks." Three parallel
+investigation passes covered every remaining unaudited page/component.
+`ClaimAgentModal.tsx`, `ConnectWalletButton.tsx`, `TraceNode.tsx`,
+`CompareTracesPanel.tsx` confirmed already real. Six real findings, each
+fixed appropriately rather than uniformly badged:
+`RegistryExplorer.tsx` was asserting a false "ZK-PROOFED" security claim
+unconditionally — the oracle's real `zk_proof_verified` flag was fetched
+and discarded; now gates the label correctly. `ImmutableLedger.tsx` (100%
+fabricated ledger/dispute/export/Merkle-proof, confirmed dead code never
+imported anywhere) got full `SeededDataBadge` disclosure rather than
+deletion — attempted `git rm` as cleanup, correctly blocked by the
+session's own auto-mode classifier as out-of-scope for a disclosure
+sweep. `XNSSearchService.tsx` (live on IdentityPage) faked every search
+result identically; rewired to the same real oracle calls
+`RegistryExplorer.tsx` already uses. A second, adjacent fake flow found
+by inspection during that fix's live verification — IdentityPage's
+"Register Additional Handle" modal claiming a real 50 ITK on-chain fee
+with zero real transaction — got the same disclosure treatment.
+`AgentsPage.tsx` had two dead-end buttons; "Deploy" was disabled +
+disclosed (no real deploy flow exists anywhere in the frontend),
+"Verify & Claim" was wired to `ClaimAgentModal.tsx`, a real, already-built
+component that was simply never imported. `SandboxConsole.tsx` (a
+labeled what-if calculator, so already adequately framed) had 3 of 5
+scoring inputs silently frozen with dead, lint-flagged setters — given
+real slider/number controls instead of a disclosure badge, since
+completing a local-only calculator was the more correct fix than
+labeling its incompleteness. All six verified live against the running
+stack, `npm run build`/`npm run lint` clean. Full writeup:
+`PRODUCTION_GAPS.md` §13.
+
+## [2026-07-16] update | Mock sweep round 3: 5 findings across 7 files (dead routes, fake sign-in, discarded search input, no-op theme toggle)
+
+Per "keep going." Three parallel passes covered every remaining
+unaudited surface. `NotionDatabase.tsx`, `MermaidDiagram.tsx`,
+`Toast.tsx`, `MarketsEscrowPanel.tsx` (already fully badged, order flow
+confirmed real wagmi/contract calls), `SystemDiagnosticsPage.tsx`, and
+`ContactModal.tsx` (genuinely posts to a real backend) all came back
+clean. Five real findings fixed: `SettingsPage.tsx` had a global "Save
+Changes" button that only fired a fake "saved to volatile memory" alert
+with nothing on the page actually needing a manual save step (removed
+entirely) plus a silently inert "Save Network Settings" button (now
+visibly disabled). Three separate landing-page/header buttons across
+`HeroSection.tsx`/`CinematicHeader.tsx`/`CoreFeatures.tsx` all pointed at
+`/integrity`, a route that has never existed in `App.tsx` — dead links
+rendering blank pages — repointed each to its real destination
+(`/`, `/settings`, `/finance`); `CinematicHeader.tsx`'s "Sign In" also
+fired a fake `alert("Google Sign-In flow initiated.")` with no real
+OAuth anywhere in the monorepo, removed since a real login form already
+exists at `/settings`. `LandingPage.tsx`'s "Agent XNS Lookup" search box
+was fully uncontrolled — typing an agent DID and clicking Lookup
+silently discarded it and opened `RegistryExplorer.tsx`'s modal blank;
+added a real `initialQuery` prop (with a `useEffect`, not a `useState`
+initializer, since the component self-guards on `isOpen` rather than
+being conditionally mounted) and wired it through. `CommandPalette.tsx`'s
+"Toggle Theme" command only ever toasted "Theme toggled" without calling
+the real `ThemeContext.setTheme` — now actually cycles the app's 4 real
+themes. All verified live; `npm run build`/`npm run lint` clean.
+Also surfaced, not fixed (pre-existing, out of scope): clicking
+`DashboardPage.tsx`'s grid widget area can hit a `react-grid-layout`
+library bug (bare `process.env` reference, no browser shim) that throws
+on drag-start and wedges that tab's renderer — a fresh tab was
+unaffected, confirming the app itself is healthy. Full writeup:
+`PRODUCTION_GAPS.md` §14.
+
+## [2026-07-17] update | Demo engine now submits real SDK telemetry, not just OTel spans (architectural fix)
+
+Found during a full end-to-end telemetry validation pass: `telemetry_events`
+was empty network-wide for every demo agent, despite the OTel span pipeline
+(fixed in earlier sessions) working correctly. Root cause: the demo
+scenario engine (`integrity-mvp/demo/src/integrity_demo/main.py`) only ever
+used the raw OTel `TracerProvider` machinery, never `integrity_sdk.client
+.IntegrityClient`'s `log_telemetry()`/`flush_telemetry()` — a second, real,
+entirely separate pipeline (`POST /v1/telemetry/ingest`) that
+`scoring-core`'s entropy/grounding/sacrifice/compliance signals actually
+derive from. Confirmed the frontend's "—"/"No AIS data yet" empty states
+were the *correct* honest behavior for genuinely-empty data before treating
+the emptiness itself as the bug to fix. Added a per-agent `IntegrityClient`
+(reusing the same real signing keypair `load_or_create_did` already
+returns, `enable_otel_export=False` to avoid re-triggering the global-
+TracerProvider trap the existing per-agent OTel providers were built to
+avoid) and wired real telemetry submission at two points: right after every
+agent's registration (works unconditionally, no LLM API key needed), and
+again with the real LLM output after the capital-allocation agent's
+conversation succeeds. Verified live against the real oracle by calling the
+new code directly against an already-registered agent's real keypair (the
+DID keypair needs no password, unlike the separately-locked EVM wallet
+keystore that's currently blocking a full fresh `make demo` run): AIS went
+from "no data" to a real, correctly-derived `800.0`, and a second call with
+real text produced genuinely different, non-round entropy/grounding values,
+proving the full submit→sign→verify→derive→score pipeline is live end to
+end. Full writeup: `PRODUCTION_GAPS.md` §15.
+
+## [2026-07-17] update | Fixed a real dashboard-wide deadlock: useOracleStream leaked one SSE connection per consumer
+
+Chased what presented as flaky browser automation AND, independently, as
+the user seeing "no agents listed" — same bug. `useOracleStream` opened a
+new `EventSource` per hook call and only closed it on unmount. SSE holds
+one of the browser's 6-per-origin HTTP/1.1 connections open by design; the
+dashboard opens two on its own (DashboardPage + WidgetRegistry's
+EventsWidget) and TraceAnalyticsPage a third, so ~3 open tabs exhaust the
+whole budget and every subsequent oracle fetch queues forever — silently,
+with no error, rendering honest-looking empty states as if no agents
+existed. Measured, not guessed: curl returned in <15ms while the UI hung;
+`ss -tnp` showed Chrome holding 6-7 connections to [::1]:8080 that
+reappeared with fresh ports seconds after an oracle restart (EventSource
+auto-reconnect = leaked streams, not stale TCP). The clincher was the
+apparent contradiction that direct navigation to localhost:8080 worked
+instantly while the pool was full — Chrome partitions socket pools by
+top-level site, so the leaked streams starved the localhost:5173 partition
+while a direct visit used a different one. Fixed with a shared,
+ref-counted EventSource registry (one real connection per stream URL,
+shared by all consumers) plus Page Visibility disconnect for hidden tabs.
+Server-side HTTP/2 would make the limit moot but needs TLS the oracle
+doesn't terminate today. Full writeup: `PRODUCTION_GAPS.md` §16.
+
+## [2026-07-17] update | Fixed a protocol bug silently rejecting ~20% of signed telemetry (float canonicalization)
+
+Chased a recurring 400 in the heartbeat logs instead of writing it off as
+noise. Root cause: the SDK signs canonical JSON containing float
+derived_signals; the oracle re-serializes with Rust serde_json to verify.
+Both emit the shortest round-tripping float string — but when a float has
+TWO equally-short representations, Python's repr and Rust's ryu can each
+pick a different one. Canonical bytes diverge, Ed25519 fails, and a
+perfectly-signed payload is rejected. Isolated empirically: 2 of 16
+heartbeat templates failed, both with derived entropy
+0.011890908425879365, while 0.009712883245855508 always passed; probing
+individual floats confirmed only that value failed, and in Python both
+"...365" and "...366" round-trip to the same f64. The oracle's error
+("eip191: signature must be 65 bytes, got 64") was a red herring —
+verify_agent_signature tries Ed25519, gets false, falls through to the
+EIP-191 branch, which then chokes on a 64-byte Ed25519 sig, naming the
+wrong subsystem. Fixed by quantizing derived signals to 6dp before
+signing (ambiguity is a 17-digit phenomenon; 6dp is unique across
+languages, and far more precision than these heuristics justify — the
+oracle recomputes them anyway). 16/16 templates now pass; SDK suite green
+at 139 passed. Remaining gap flagged, not hidden: caller-supplied floats
+in metadata can still hit this; the real fix is RFC 8785 (JCS) on both
+sides — same family as the ensure_ascii divergence bcc.py already warns
+about. Full writeup: `PRODUCTION_GAPS.md` §17.
+
+## [2026-07-18] update | Continuous real-data generator + "make it feel real" dashboard fixes
+
+Added `integrity-heartbeat` (integrity-mvp/demo): a continuous generator
+that emits real signed telemetry, real nested OTel spans, and real
+OPA-evaluated BCC decisions (incl. ~25% genuine policy violations) across
+the 4 demo agents every few seconds — NOT a mock seeder, every
+signature/nonce/policy-decision is genuine (19,101 accepted, 0 rejected
+over a multi-hour run). This is what makes AIS/volume charts, the live SSE
+feed, and Trace Analytics actually populate and trend. Then a batch of
+real UI fixes: (1) unified "everything logged" diagnostics table —
+GET /v1/audit-log now merges a third source (otel_spans, flat) with BCC
+decisions + telemetry; SystemDiagnosticsPage de-tabbed into one filterable
+table with source chips + free-text filter. (2) Fixed that table being
+squeezed invisible below the fold (page now scrolls, panel has min-height).
+(3) Compare Traces / Flame Graph rewired from the all-agent live stream to
+the header's selectedAgent + getRecentTraces preload — both dropdowns now
+auto-populate with the selected agent's real traces instead of sitting
+empty; flame graph render improved (proportional widths, duration labels,
+depth axis). (4) Sidebar profile wired to the real userapi session (real
+email, real logout) instead of the disclosed-fake "Admin User / NOT A REAL
+SESSION". (5) DevAutoLogin makes admin@xibalba.dev the default demo/test
+session via real POST /auth/login, env-gated and local-only. Full
+regression green: frontend build/lint, oracle 72+8, SDK 139, bcc 91. Full
+writeup: PRODUCTION_GAPS.md §18.

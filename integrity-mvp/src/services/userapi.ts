@@ -6,9 +6,23 @@ import { USERAPI_URL } from '../config';
 // durably persisted secrets.
 const TOKEN_KEY = 'integrity_userapi_jwt';
 
+// Fired on every auth transition (login, register, logout) so the app shell
+// (Sidebar's real-session profile) can refresh without a full reload.
+// sessionStorage's native 'storage' event only fires in OTHER tabs, never the
+// one that made the change, so this same-tab custom event is required.
+const emitAuthChanged = () => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('integrity-auth-changed'));
+};
+
 export const getToken = (): string | null => sessionStorage.getItem(TOKEN_KEY);
-const setToken = (token: string) => sessionStorage.setItem(TOKEN_KEY, token);
-export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+const setToken = (token: string) => {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    emitAuthChanged();
+};
+export const clearToken = () => {
+    sessionStorage.removeItem(TOKEN_KEY);
+    emitAuthChanged();
+};
 
 export interface TokenResponse {
     access_token: string;

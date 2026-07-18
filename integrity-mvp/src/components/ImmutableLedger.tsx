@@ -4,7 +4,16 @@ import { Search, ShieldCheck, ShieldAlert, Download, Terminal, ExternalLink, X, 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '../contexts/ToastContext';
 import { useIsMobile } from '../utils/useIsMobile';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
 
+// Not currently rendered by any page (verified: no import site anywhere in
+// src/) -- kept as a UI reference implementation, not deleted, but every
+// data point and action in here is fabricated: no real transaction-ledger
+// endpoint exists anywhere in this monorepo (telemetry_events/otel_spans/
+// audit_log are different, real things -- see PRODUCTION_GAPS.md §§1,10,11
+// -- none of them are a token-transfer settlement ledger). If this is ever
+// wired into a real page, every disclosure below needs to become a real
+// wire-up first, not just get silently removed.
 
 interface ImmutableLedgerProps {
     agentAddress?: string;
@@ -31,7 +40,10 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
 
     const fetchLogs = async () => {
         try {
-            // Mock data for MVP
+            // No real transaction-ledger endpoint exists anywhere in this monorepo
+            // (see this file's header comment) -- these two rows are fabricated,
+            // fixed content, not a live poll of anything real despite the 15s
+            // interval below.
             const mockLogs = [
                 {
                     on_chain_tx_hash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
@@ -93,14 +105,17 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
         if (!selectedTx) return;
         setIsSubmittingDispute(true);
         try {
+            // Simulated only -- no real dispute contract call or backend
+            // submission exists here (unlike the real on-chain dispute path in
+            // ShieldPage.tsx's "Compliance Review Queue" `handleSlashViolation`).
+            // This only mutates the fabricated local rows above.
             await new Promise(r => setTimeout(r, 1000));
-            
-            // Update local states
+
             const updatedTx = { ...selectedTx, dispute_status: 'PENDING' };
             setSelectedTx(updatedTx);
             setLogs(prev => prev.map(log => log.on_chain_tx_hash === selectedTx.on_chain_tx_hash ? updatedTx : log));
-            
-            addToast('success', 'Dispute raised successfully. Status set to PENDING.');
+
+            addToast('success', 'Simulated only: no real dispute was submitted on-chain.');
             setIsDisputing(false);
             setDisputeReason('');
         } catch (err: any) {
@@ -158,7 +173,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                     />
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                    <button 
+                    <button
                         onClick={handleExport}
                         className="btn-outline"
                         style={{
@@ -168,7 +183,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                             color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 700
                         }}
                     >
-                        <Download size={14} /> EXPORT
+                        <Download size={14} /> EXPORT (SEEDED)
                     </button>
                 </div>
             </div>
@@ -179,9 +194,10 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                 color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.2em',
                 background: 'rgba(201, 168, 76, 0.03)',
                 borderBottom: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', gap: '8px'
+                display: 'flex', alignItems: 'center', gap: '12px'
             }}>
                 <Terminal size={10} /> BASE_SEPOLIA_NODE_01 // TRUST_LEDGER_STREAM
+                <SeededDataBadge label="No real transaction-ledger endpoint exists yet -- every row below is fabricated, fixed content" />
             </div>
 
             {/* Scrolling Log Window */}
@@ -341,9 +357,9 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                     <div>
                                                         <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>From Address</div>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                                                            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{selectedTx.from || selectedTx.agent_address || '0xcc3fa26e4c792f253b72d7d4b885c1fa7116a99c'}</span>
-                                                            <button 
-                                                                onClick={() => handleCopy(selectedTx.from || selectedTx.agent_address || '0xcc3fa26e4c792f253b72d7d4b885c1fa7116a99c', 'from')}
+                                                            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{selectedTx.from || selectedTx.agent_address || '—'}</span>
+                                                            <button
+                                                                onClick={() => handleCopy(selectedTx.from || selectedTx.agent_address || '', 'from')}
                                                                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                                                             >
                                                                 {copied === 'from' ? <Check size={12} color="var(--success)" /> : <Copy size={12} />}
@@ -354,9 +370,9 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                     <div>
                                                         <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>To Address</div>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                                                            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{selectedTx.to || '0x5b5670d93038406468e0fa2c9683bf1673dedbf3'}</span>
-                                                            <button 
-                                                                onClick={() => handleCopy(selectedTx.to || '0x5b5670d93038406468e0fa2c9683bf1673dedbf3', 'to')}
+                                                            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{selectedTx.to || '—'}</span>
+                                                            <button
+                                                                onClick={() => handleCopy(selectedTx.to || '', 'to')}
                                                                 style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                                                             >
                                                                 {copied === 'to' ? <Check size={12} color="var(--success)" /> : <Copy size={12} />}
@@ -431,7 +447,10 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                                                         <>
                                                             {/* Merkle Path Diagram */}
                                                             <div style={{ padding: '12px', background: 'hsla(var(--bg-panel-hsl) / 0.5)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
-                                                                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 800 }}>On-Chain State Anchor & Merkle Proof</div>
+                                                                <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: 'var(--gold)', letterSpacing: '0.05em', marginBottom: '8px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                On-Chain State Anchor & Merkle Proof
+                                                                <SeededDataBadge label="Illustrative only -- sibling/root hashes below are sliced from the fake tx hash above, not a real proof" />
+                                                            </div>
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontFamily: 'monospace', fontSize: '0.7rem' }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                                         <span style={{ color: 'var(--emerald)' }}>[LEAF]</span>
@@ -503,7 +522,7 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
                 justifyContent: 'space-between'
             }}>
                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>
-                    {filteredLogs.length} SECURE_RECORDS_INDEXED
+                    {filteredLogs.length} SEEDED_RECORDS (not indexed on-chain)
                 </span>
                 <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
                     <button className="btn-outline" style={{ padding: '6px 12px', fontSize: '0.65rem', borderRadius: 'var(--r-xs)' }} disabled>PREV</button>

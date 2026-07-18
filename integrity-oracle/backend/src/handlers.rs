@@ -1445,6 +1445,180 @@ pub async fn get_traces(
 }
 
 // ---------------------------------------------------------------------------------
+// audit_log: the real, durable event trail behind `/v1/audit-log` (dashboard's Audit
+// Logs panel). `POST /v1/audit/ingest` is called by bcc_middleware (see
+// `bcc_middleware/app/audit.py`) after every intercept decision — allow AND deny —
+// which is what makes this a genuine source of truth rather than a re-hash of data
+// that already had its own page (telemetry_events -> SDK Telemetry, otel_spans ->
+// Trace Analytics). Deliberately unauthenticated, matching the OTLP receiver's
+// existing posture (see otlp.rs) — this is a private-network service-to-service call
+// in the current single-operator topology, not a public-facing endpoint; a forged
+// entry here is a known, documented limitation (PRODUCTION_GAPS.md), not silently
+// claimed to be tamper-proof.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditLogIngestRequest {
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub intent_type: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditLogIngestResponse {
+    pub id: Uuid,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/ingest",
+    request_body = AuditLogIngestRequest,
+    responses(
+        (status = 200, description = "Audit event recorded", body = AuditLogIngestResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn ingest_audit_log(
+    State(state): State<AppState>,
+    Json(req): Json<AuditLogIngestRequest>,
+) -> Result<Json<AuditLogIngestResponse>, AppError> {
+    let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
+    let id = db::insert_audit_log(
+        &state.pool,
+        req.agent_id.as_deref(),
+        &req.source,
+        &req.event_type,
+        &req.decision,
+        req.reason_code.as_deref(),
+        req.detail.as_deref(),
+        req.intent_type.as_deref(),
+        &metadata,
+    )
+    .await?;
+    Ok(Json(AuditLogIngestResponse { id }))
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AuditLogEntryDto {
+    pub id: String,
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AuditLogQuery {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// Merges three real event streams into one time-ordered feed -- the genuine
+/// "everything logged" table a manual-debugging view needs, not just policy
+/// decisions: `audit_log` (BCC intercept decisions -- the only source with an
+/// explicit allow/deny verdict), `telemetry_events` (SDK-submitted telemetry,
+/// surfaced as "flagged"/"recorded" so a compliance operator sees
+/// signature-verified-but-suspicious submissions alongside policy denials),
+/// and `otel_spans` (every real span, flat, `decision` repurposed as the
+/// span's own real status_code). Merged in Rust rather than a single SQL
+/// UNION because the three source tables don't share a column shape and
+/// coercing them into one query would obscure more than it saves — see each
+/// table's own migration for why they're separate to begin with. The
+/// telemetry_events and otel_spans sides only mix in when `agent_id` is
+/// given: neither table has an existing "recent across all agents" query
+/// (both underlying db:: functions are always agent-scoped), so the global
+/// feed (no agent_id) is audit_log only rather than paying for a new
+/// unscoped scan just for this one aggregate view.
+#[utoipa::path(
+    get,
+    path = "/v1/audit-log",
+    params(
+        ("agent_id" = Option<String>, Query, description = "Filter to one agent's DID; omit for the global feed"),
+        ("limit" = Option<i64>, Query, description = "Max entries per source table before merging (default 100)"),
+    ),
+    responses(
+        (status = 200, description = "Real, time-ordered log merging BCC decisions, SDK telemetry, and OTel spans", body = Vec<AuditLogEntryDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_audit_log(
+    State(state): State<AppState>,
+    Query(query): Query<AuditLogQuery>,
+) -> Result<Json<Vec<AuditLogEntryDto>>, AppError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let agent_id = query.agent_id.as_deref();
+
+    let decisions = db::get_recent_audit_log(&state.pool, agent_id, limit).await?;
+    let mut entries: Vec<AuditLogEntryDto> = decisions
+        .into_iter()
+        .map(|r| AuditLogEntryDto {
+            id: r.id.to_string(),
+            agent_id: r.agent_id,
+            source: r.source,
+            event_type: r.event_type,
+            decision: r.decision,
+            reason_code: r.reason_code,
+            detail: r.detail,
+            created_at: r.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    if let Some(aid) = agent_id {
+        let telemetry = db::get_recent_telemetry(&state.pool, aid, limit).await?;
+        entries.extend(telemetry.into_iter().map(|e| AuditLogEntryDto {
+            id: e.id.to_string(),
+            agent_id: Some(e.agent_id),
+            source: "sdk_telemetry".to_string(),
+            event_type: "telemetry_event".to_string(),
+            decision: if e.flagged { "flagged".to_string() } else { "recorded".to_string() },
+            reason_code: None,
+            detail: Some(format!(
+                "nonce={} performance_variance={:.3} hgi_raw={:.3} zk_verified={}",
+                e.nonce, e.performance_variance, e.hgi_raw, e.zk_verified
+            )),
+            created_at: e.created_at.to_rfc3339(),
+        }));
+
+        // Third real source: OTel spans, flat (not trace-tree-grouped) --
+        // makes this the genuine "everything logged for this agent" feed a
+        // manual-debugging table needs, not just policy decisions and
+        // telemetry submissions. `decision` here isn't an authorization
+        // verdict (spans don't have one) -- it's the span's own real
+        // `status_code` (STATUS_CODE_OK/ERROR/UNSET), which is the closest
+        // real analog: did this unit of work report success or failure.
+        let spans = db::get_recent_spans_flat(&state.pool, aid, limit).await?;
+        entries.extend(spans.into_iter().map(|s| {
+            let duration_ms = (s.end_time - s.start_time).num_milliseconds();
+            AuditLogEntryDto {
+                id: s.id.to_string(),
+                agent_id: Some(s.agent_id),
+                source: "otel_span".to_string(),
+                event_type: s.name,
+                decision: s.status_code,
+                reason_code: s.parent_span_id,
+                detail: Some(format!("trace_id={} duration_ms={}", s.trace_id, duration_ms)),
+                created_at: s.created_at.to_rfc3339(),
+            }
+        }));
+    }
+
+    entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    entries.truncate(limit as usize);
+    Ok(Json(entries))
+}
+
+// ---------------------------------------------------------------------------------
 // Historical/bucketed endpoints (PRODUCTION_GAPS.md §1 items 2-3): AIS trend,
 // telemetry volume, OTLP span volume — the Finance/Intelligence/SdkTelemetry pages'
 // chart data source, backed by migration 0004's `time_bucket` queries.
@@ -1630,6 +1804,49 @@ pub async fn get_otel_volume(
     let buckets = rows.into_iter().map(|(bucket_start, span_count)| OtelVolumeBucket { bucket_start, span_count }).collect();
 
     Ok(Json(buckets))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecentTraceDto {
+    pub trace_id: String,
+    pub name: String,
+    pub start_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LimitQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/otel/traces",
+    params(
+        ("id" = String, Path, description = "Agent DID"),
+        ("limit" = Option<i64>, Query, description = "Max traces to return (default 20)"),
+    ),
+    responses(
+        (status = 200, description = "Recent trace_ids for this agent (one row per root span, most recent first) — the list-discovery endpoint `GET /v1/traces/{trace_id}` itself never provided.", body = Vec<RecentTraceDto>),
+    ),
+    tag = "telemetry",
+)]
+pub async fn get_recent_traces(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<Vec<RecentTraceDto>>, AppError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 200);
+    let rows = db::get_recent_root_spans(&state.pool, &id, limit).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|r| RecentTraceDto {
+            trace_id: r.trace_id,
+            name: r.name,
+            start_time: r.start_time.to_rfc3339(),
+        })
+        .collect();
+    Ok(Json(dtos))
 }
 
 // ---------------------------------------------------------------------------------

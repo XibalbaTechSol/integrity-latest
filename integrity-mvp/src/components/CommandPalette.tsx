@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Activity, Wallet, FileCode, Shield, Command, BookOpen, Fingerprint } from 'lucide-react';
+import { Search, Activity, Wallet, FileCode, Shield, Command, BookOpen, Fingerprint, GitBranch } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../contexts/ToastContext';
+import { useTheme, type Theme } from '../contexts/ThemeContext';
+
+const THEME_CYCLE: Theme[] = ['default', 'navy-gold', 'clinical-light', 'notion'];
 
 interface Action {
   id: string;
@@ -18,6 +21,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { theme, setTheme } = useTheme();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -43,13 +47,19 @@ export function CommandPalette() {
   }, [isOpen]);
 
   const actions: Action[] = [
-    { id: 'nav-telemetry', title: 'Go to Telemetry', icon: <Activity size={16} />, category: 'Navigation', onSelect: () => { navigate('/telemetry'); setIsOpen(false); } },
+    { id: 'nav-diagnostics', title: 'Go to Diagnostics', icon: <Activity size={16} />, category: 'Navigation', onSelect: () => { navigate('/diagnostics'); setIsOpen(false); } },
+    { id: 'nav-traces', title: 'Go to Trace Analytics', icon: <GitBranch size={16} />, category: 'Navigation', onSelect: () => { navigate('/traces'); setIsOpen(false); } },
     { id: 'nav-wallet', title: 'Go to Finance', icon: <Wallet size={16} />, category: 'Navigation', onSelect: () => { navigate('/finance'); setIsOpen(false); } },
     { id: 'nav-contracts', title: 'Go to Contracts', icon: <FileCode size={16} />, category: 'Navigation', onSelect: () => { navigate('/contracts'); setIsOpen(false); } },
     { id: 'nav-shield', title: 'Go to Xibalba Shield', icon: <Shield size={16} />, category: 'Navigation', onSelect: () => { navigate('/shield'); setIsOpen(false); } },
     { id: 'nav-identity', title: 'Manage Identity (DIDs)', icon: <Fingerprint size={16} />, category: 'Navigation', onSelect: () => { navigate('/identity'); setIsOpen(false); } },
-    { id: 'nav-ledger', title: 'View Audit Logs', icon: <BookOpen size={16} />, category: 'Navigation', onSelect: () => { navigate('/audit'); setIsOpen(false); } },
-    { id: 'action-theme', title: 'Toggle Theme', icon: <Command size={16} />, category: 'Settings', onSelect: () => { addToast('info', 'Theme toggled'); setIsOpen(false); } },
+    { id: 'nav-ledger', title: 'View Audit Logs', icon: <BookOpen size={16} />, category: 'Navigation', onSelect: () => { navigate('/diagnostics'); setIsOpen(false); } },
+    { id: 'action-theme', title: 'Toggle Theme', icon: <Command size={16} />, category: 'Settings', onSelect: () => {
+      const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length];
+      setTheme(next);
+      addToast('info', `Theme set to ${next}`);
+      setIsOpen(false);
+    } },
   ];
 
   const filteredActions = query 

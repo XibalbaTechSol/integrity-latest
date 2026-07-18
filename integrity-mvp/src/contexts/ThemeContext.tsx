@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-export type Theme = 'default' | 'navy-gold' | 'clinical-light';
+export type Theme = 'default' | 'navy-gold' | 'clinical-light' | 'notion';
 export type Font = 'inter' | 'raleway' | 'montserrat';
 
 interface ThemeContextType {

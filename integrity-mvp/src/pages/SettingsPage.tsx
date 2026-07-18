@@ -86,11 +86,14 @@ export const SettingsPage = () => {
   };
   return (
     <div className="main-content">
-      <TopBar title="System Configuration">
-        <button className="btn btn-primary" onClick={() => window.alert('Settings saved to volatile memory.')}>
-          Save Changes
-        </button>
-      </TopBar>
+      {/* No page-wide "Save Changes" button: theme/font persist live via
+          ThemeContext as you change them, API keys are revoked/created via
+          real userapi calls immediately, and the Network panel below is
+          already disclosed as non-functional (SeededDataBadge) -- nothing
+          on this page needs, or previously had, a real save step behind a
+          button that only ever fired a fake "saved to volatile memory"
+          alert. */}
+      <TopBar title="System Configuration" />
 
       <div className="page-content">
         <div className="grid grid-2">
@@ -138,6 +141,18 @@ export const SettingsPage = () => {
                   <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#0ea5e9' }}></div> Clinical Light
                 </div>
                 <div style={{ fontSize: '0.85rem', color: '#475569', fontFamily: 'Roboto, sans-serif' }}>High legibility light theme with Roboto typography for clinical environments.</div>
+              </div>
+              <div 
+                onClick={() => setTheme('notion')}
+                style={{ 
+                  border: theme === 'notion' ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)', 
+                  padding: '16px', borderRadius: '8px', cursor: 'pointer', background: '#191919' 
+                }}
+              >
+                <div style={{ fontWeight: 'bold', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', color: '#ececec' }}>
+                  <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#333333' }}></div> Notion Minimal
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#9b9b9b' }}>Flat gray panels, zero glassmorphism, clean borders.</div>
               </div>
             </div>
           </div>
@@ -389,7 +404,7 @@ export const SettingsPage = () => {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button className="btn btn-primary">Save Network Settings</button>
+              <button className="btn btn-primary" disabled style={{ opacity: 0.5, cursor: 'not-allowed' }} title="Not implemented -- this panel is display-only, see the Seeded Data badge above">Save Network Settings</button>
             </div>
           </div>
 

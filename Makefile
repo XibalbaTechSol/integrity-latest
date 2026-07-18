@@ -11,7 +11,7 @@ setup:
 
 chain:
 	touch deployments.local.json
-	cd contracts && anvil &
+	cd contracts && anvil --host 0.0.0.0 &
 	sleep 2
 	cd contracts && FUNDER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
 

@@ -6,7 +6,7 @@ import { NotionDatabase } from '../components/NotionDatabase';
 import { ClaimAgentModal } from '../components/ClaimAgentModal';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useAgent } from '../contexts/AgentContext';
-import { oracle, type WalletResponse } from '../services/oracle';
+import { oracle, type WalletResponse, type AisResponse } from '../services/oracle';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { XNSSearchService } from '../components/XNSSearchService';
 import { Panel } from '../shared/Panel';
@@ -75,6 +75,7 @@ export const IdentityPage = () => {
   const { selectedAgent } = useAgent();
   const [wallet, setWallet] = useState<WalletResponse | null>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [ais, setAisData] = useState<AisResponse | null>(null);
 
   useEffect(() => {
     if (!selectedAgent) return;
@@ -87,6 +88,25 @@ export const IdentityPage = () => {
     return () => { cancelled = true; };
   }, [selectedAgent]);
 
+  // Real AIS score, same fetch/tier-banding pattern already proven out on
+  // ShieldPage's Stability Certification tab (PRODUCTION_GAPS.md §7) — this
+  // page used to hardcode `ais = 9.5` and `tier = 'AAA'` unconditionally.
+  useEffect(() => {
+    if (!selectedAgent) { setAisData(null); return; }
+    let cancelled = false;
+    oracle.getAis(selectedAgent.id)
+      .then(res => { if (!cancelled) setAisData(res); })
+      .catch(() => { if (!cancelled) setAisData(null); });
+    return () => { cancelled = true; };
+  }, [selectedAgent]);
+
+  function stabilityTier(score: number): { label: string; color: string } {
+    if (score >= 900) return { label: 'AAA', color: 'var(--success)' };
+    if (score >= 700) return { label: 'A', color: 'var(--success)' };
+    if (score >= 500) return { label: 'B', color: 'var(--warning)' };
+    return { label: 'C', color: 'var(--danger)' };
+  }
+
   const handleRegister = () => {
     if (tempXns.trim()) {
       setXnsName(tempXns.trim());
@@ -97,10 +117,14 @@ export const IdentityPage = () => {
 
   const did = selectedAgent?.did ?? null;
   const shortDID = did ? (did.length > 36 ? `${did.slice(0, 18)}\u2026${did.slice(-14)}` : did) : null;
-  const ais = selectedAgent ? 9.5 : null; // MVP hardcodes or uses real AIS if available, fallback for demo
-  const tier = selectedAgent?.status === 'ACTIVE' ? 'AAA' : 'Unverified';
-  const tierColor = tier === 'AAA' ? 'var(--success)' : 'var(--text-muted)';
-  const teeVerified = true;
+  const tier = ais ? stabilityTier(ais.ais) : null;
+  const tierColor = tier?.color ?? 'var(--text-muted)';
+  // No real TEE attestation exists anywhere in this monorepo yet —
+  // NitroAttestationGenerator raises NotImplementedError (see
+  // PRODUCTION_GAPS.md §7 / SettingsPage's disabled "Regenerate Attestation
+  // Document" button). This used to hardcode `true` unconditionally, a
+  // false security claim of hardware attestation for every agent.
+  const teeVerified = false;
 
   return (
     <div className="main-content" style={{ position: 'relative' }}>
@@ -156,7 +180,7 @@ export const IdentityPage = () => {
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>AIS Score</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--primary)', lineHeight: 1 }}>
-                    {ais !== null ? ais.toFixed(1) : '\u2014'}
+                    {ais !== null ? `${ais.ais.toFixed(1)} / 1000` : '\u2014'}
                   </div>
                 </div>
 
@@ -164,9 +188,13 @@ export const IdentityPage = () => {
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>Verification Tier</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', background: `${tierColor}22`, color: tierColor, border: `1px solid ${tierColor}55` }}>
-                      {tier}
-                    </span>
+                    {tier ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.04em', background: `${tierColor}22`, color: tierColor, border: `1px solid ${tierColor}55` }}>
+                        {tier.label}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{'\u2014'}</span>
+                    )}
                   </div>
                 </div>
 
@@ -241,7 +269,10 @@ export const IdentityPage = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
-                          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Your Registered Handle</div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            Your Registered Handle
+                            <SeededDataBadge label="No XibalbaNameService contract exists yet -- this is a local display-only value, not a real on-chain handle" />
+                          </div>
                           <span style={{ fontSize: '2rem', fontWeight: '900', fontFamily: 'var(--font-mono)', background: 'linear-gradient(90deg, #fff, #60a5fa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                             {xnsName}.xibalba
                           </span>
@@ -259,7 +290,11 @@ export const IdentityPage = () => {
               )}
 
               {activeTab === 'enclave' && (
-                <Panel title="TEE Measurements" icon={<Shield size={18} />}>
+                <Panel
+                  title="TEE Measurements"
+                  icon={<Shield size={18} />}
+                  action={<SeededDataBadge label="No real attestation document exists yet" />}
+                >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div style={{ padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Execution Enclave</div>
@@ -354,6 +389,7 @@ export const IdentityPage = () => {
               <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Globe size={20} color="var(--primary)" />
                 Register XNS Handle
+                <SeededDataBadge label="Local-only -- no real transaction or on-chain registry write happens here" />
               </h2>
               <button style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => setIsXnsOpen(false)}>
                 <X size={20} />
@@ -379,7 +415,7 @@ export const IdentityPage = () => {
               <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid var(--primary)', borderRadius: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Registration Fee</span>
-                  <span style={{ color: 'var(--gold)', fontWeight: 600 }}>50 ITK</span>
+                  <span style={{ color: 'var(--gold)', fontWeight: 600 }}>50 ITK (not charged -- no real contract call)</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Target Resolution</span>
@@ -388,7 +424,7 @@ export const IdentityPage = () => {
               </div>
 
               <button className="btn btn-primary" style={{ width: '100%', padding: '12px' }} onClick={handleRegister}>
-                Confirm & Register
+                Confirm & Register (Simulated)
               </button>
             </div>
           </div>

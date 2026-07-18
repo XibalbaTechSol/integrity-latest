@@ -1,7 +1,7 @@
 ---
 title: integrity-mvp
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-07-16
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -22,6 +22,7 @@ source_files:
   - integrity-mvp/src/components/widgets/TriMetricWidget.tsx
   - integrity-mvp/src/components/widgets/WidgetRegistry.tsx
   - integrity-mvp/demo/src/integrity_demo/main.py
+  - integrity-mvp/demo/src/integrity_demo/agent_loop.py
   - integrity-mvp/demo/src/integrity_demo/userapi_bridge.py
   - integrity-mvp/scripts/seed_mock_data.py
   - integrity-mvp/.env.example
@@ -45,7 +46,45 @@ is simply gone. If you need it for historical reference, it's recoverable
 from this file's prior version in your editor's/tool's history, not from
 anything in the current tree.
 
-## What actually exists now (as of 2026-07-12, this session's work)
+## Page consolidation (2026-07-16) — route count and names below are stale
+
+`App.tsx` now defines **11** routes, not 16: `/`, `/landing`, `/identity`,
+`/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/shield`,
+`/agents`, `/documents`. Six pages named throughout the rest of this
+document no longer exist under those names — `AuditPage`,
+`ChainOfThoughtPage`, `CompareTracesPage`, `ExchangePage`,
+`IntelligencePage`, `SdkTelemetryPage` were deleted and consolidated into
+two new pages:
+- **`TraceAnalyticsPage.tsx`** (`/traces`) — merges `ChainOfThoughtPage`'s
+  Historical Traces DAG view and `CompareTracesPage`'s Gantt/compare view
+  into one tabbed page (Live Stream, Historical Traces, Metrics,
+  Time-Travel Debugger, Compare Traces). Metrics/Time-Travel Debugger are
+  honestly `SeededDataBadge`-marked — no backend endpoint exists for either.
+- **`SystemDiagnosticsPage.tsx`** (`/diagnostics`) — merges
+  `SdkTelemetryPage`'s real oracle telemetry/OTLP-volume view and
+  `AuditPage`'s disclosed-simulated audit-log feed into one tabbed page
+  (SDK Telemetry, Audit Logs).
+
+`IntelligencePage`'s real radar-widget work (below) now lives on the
+Dashboard (`/`) directly. `ExchangePage`'s real wagmi market-entry flow
+was folded into `FinancePage`'s "A2A Markets & Escrow" tab
+(`src/components/finance/MarketsEscrowPanel.tsx`).
+
+Re-verified for real after the consolidation, not just by reading code:
+brought up a full local anvil + `docker-compose` stack, generated a real
+3-span nested OTel trace via the SDK's `traceable()` API against the live
+oracle, and confirmed `TraceAnalyticsPage` renders it as a real DAG with
+real span attributes over the live SSE stream, and `SystemDiagnosticsPage`'s
+telemetry volume chart reflects the same real data — the demo→oracle→
+frontend pipeline described in §10 of `PRODUCTION_GAPS.md` survived the
+rename intact. Also found and fixed one real bug this pass:
+`FinancePage.tsx`'s live ITK balance was off by 10^18 (missing
+`formatUnits(..., 18)` on the raw wei-scale `itk_balance` string from
+`GET /v1/agent/{id}/wallet`), rendering a nonsense multi-quintillion-dollar
+portfolio value — see `PRODUCTION_GAPS.md` §7 for the full writeup.
+
+## What actually exists now (as of 2026-07-12, this session's work — page
+names below predate the 2026-07-16 consolidation above)
 
 React 19 + Vite + TypeScript, 16 routed pages (`src/App.tsx`). The
 rewritten shell shipped cosmetically complete but has now been fully resolved
@@ -177,7 +216,7 @@ registered agent, not just a passing test suite.
   `integrity-userapi`'s `demo_runs` table (`userapi_bridge.py` — see
   [integrity-userapi](integrity-userapi.md)). **Actually running it
   end-to-end against a real local chain + real oracle (2026-07-16) found
-  and fixed 3 real bugs no amount of code reading had caught**: every OTel
+  and fixed several real bugs no amount of code reading had caught**: every OTel
   span it ever exported was silently rejected by the oracle (missing
   `integrity.agent.id`, plus a structural one-shot-global-tracer issue
   given this engine manages 4 different agent identities in one process —
@@ -187,8 +226,13 @@ registered agent, not just a passing test suite.
   the registration loop's existing per-agent error handling); and there was
   no preflight check that the funder wallet (real Base Sepolia balance:
   ~0.001 ETH, 10x under one agent's default funding) could actually afford
-  the run before spending gas on a doomed one. Full writeup:
-  `PRODUCTION_GAPS.md` §9. Still genuinely missing: no
+  the run before spending gas on a doomed one.
+  
+  Additionally, during integration testing on 2026-07-16, we found and fixed two other crucial issues:
+  - Added support for Google Gemini OpenAI compatibility in `agent_loop.py` to allow execution using `GEMINI_API_KEY` (using `gemini-2.5-flash` via the OpenAI client compatibility layer).
+  - Integrated the SDK's `NonceStore` in the capital allocation tool call flow rather than a hardcoded `nonce=1`, preventing `BCC_NONCE_REPLAY` rejections in sequential runs.
+  
+  The full closed-loop data path has now been verified successfully locally: agent registration -> oracle registration -> OTel trace ingestion -> reputation sync -> BCC intercept gate authorization -> on-chain capital allocation. Full writeup: `PRODUCTION_GAPS.md` §9. Still genuinely missing: no
   UI trigger anywhere in this dashboard creates a `demo_runs` row or
   launches this CLI process — it remains an operator-run script against
   live Base Sepolia using a funder private key.

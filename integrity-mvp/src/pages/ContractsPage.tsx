@@ -5,6 +5,102 @@ import { TopBar } from '../components/TopBar';
 import { oracle } from '../services/oracle';
 import type { AgentSummary } from '../services/oracle';
 import { REAL_FILES } from '../services/contractFiles';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
+
+const registerSolidityLanguage = (monaco: any) => {
+  if (monaco.languages.getLanguages().some((lang: any) => lang.id === 'solidity')) {
+    return;
+  }
+
+  monaco.languages.register({ id: 'solidity' });
+
+  monaco.languages.setMonarchTokensProvider('solidity', {
+    keywords: [
+      'contract', 'library', 'interface', 'is', 'struct', 'mapping', 'address',
+      'string', 'bool', 'uint', 'int', 'uint256', 'int256', 'bytes', 'bytes32',
+      'function', 'returns', 'public', 'external', 'private', 'internal',
+      'view', 'pure', 'payable', 'constant', 'anonymous', 'indexed',
+      'returns', 'return', 'revert', 'require', 'assert', 'event', 'emit',
+      'modifier', 'constructor', 'fallback', 'receive', 'error',
+      'pragma', 'solidity', 'import', 'using', 'for', 'global',
+      'assembly', 'let', 'if', 'else', 'for', 'while', 'do', 'break', 'continue',
+      'new', 'delete', 'type', 'super', 'this', 'virtual', 'override',
+      'storage', 'memory', 'calldata', 'msg', 'tx', 'block', 'abi'
+    ],
+
+    operators: [
+      '=', '>', '<', '!', '~', '?', ':',
+      '==', '<=', '>=', '!=', '&&', '||', '++', '--',
+      '+', '-', '*', '/', '&', '|', '^', '%', '<<', '>>', '>>>',
+      '+=', '-=', '*=', '/=', '&=', '|=', '^=', '%=', '<<=', '>>=', '>>>='
+    ],
+
+    symbols: /[=><!~?:&|+\-*\/\^%]+/,
+    escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
+
+    tokenizer: {
+      root: [
+        // identifiers and keywords
+        [/[a-zA-Z_$][\w$]*/, {
+          cases: {
+            '@keywords': 'keyword',
+            '@default': 'identifier'
+          }
+        }],
+
+        // whitespace
+        { include: '@whitespace' },
+
+        // delimiters and operators
+        [/[{}()\[\]]/, '@brackets'],
+        [/[<>](?!@symbols)/, '@brackets'],
+        [/@symbols/, {
+          cases: {
+            '@operators': 'operator',
+            '@default': ''
+          }
+        }],
+
+        // numbers
+        [/\d*\.\d+(?:[eE][\-+]?\d+)?/, 'number.float'],
+        [/0[xX][0-9a-fA-F]+/, 'number.hex'],
+        [/\d+/, 'number'],
+
+        // delimiter: after number because of .\d floats
+        [/[;,.]/, 'delimiter'],
+
+        // strings
+        [/"([^"\\]|\\.)*$/, 'string.invalid'],  // non-templated string
+        [/"/, 'string', '@string'],
+
+        // characters
+        [/'[^\\']'/, 'string'],
+        [/(')(@escapes)(')/, ['string', 'string.escape', 'string']],
+        [/'/, 'string.invalid']
+      ],
+
+      whitespace: [
+        [/[ \t\r\n]+/, 'white'],
+        [/\/\*/, 'comment', '@comment'],
+        [/\/\/.*$/, 'comment'],
+      ],
+
+      comment: [
+        [/[^\/*]+/, 'comment'],
+        [/\/\*/, 'comment', '@push'],    // nested comment
+        ["\\*/", 'comment', '@pop'],
+        [/[\/*]/, 'comment']
+      ],
+
+      string: [
+        [/[^\\"]+/, 'string'],
+        [/@escapes/, 'string.escape'],
+        [/\\./, 'string.escape.invalid'],
+        [/"/, 'string', '@pop']
+      ],
+    },
+  });
+};
 
 export const ContractsPage = () => {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
@@ -158,6 +254,7 @@ export const ContractsPage = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Code size={18} style={{ color: 'var(--text-muted)' }} />
           <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Integrity IDE Workstation</span>
+          <SeededDataBadge label="Build/Deploy/calls below are simulated — no compiler or deploy route exists" />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => appendLog('State saved locally.')}>
@@ -307,6 +404,7 @@ export const ContractsPage = () => {
                 theme="vs-dark"
                 value={getContractCode(activeContract.id)}
                 onChange={handleEditorChange}
+                beforeMount={registerSolidityLanguage}
                 options={{
                   minimap: { enabled: true },
                   fontSize: 14,

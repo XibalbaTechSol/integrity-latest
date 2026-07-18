@@ -20,7 +20,19 @@ class IntegrityAgent:
         self.tools = tools
         self.tool_map = tool_map
         self.model = model
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY"))
+        openai_key = os.getenv("OPENAI_API_KEY")
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        
+        if not openai_key and gemini_key:
+            self.client = OpenAI(
+                api_key=gemini_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
+            # Default to gemini-2.5-flash for compatibility if model is default gpt-4o-mini
+            if model == "gpt-4o-mini":
+                self.model = "gemini-2.5-flash"
+        else:
+            self.client = OpenAI(api_key=openai_key or gemini_key)
 
     def run_conversation(self, user_message: str, max_iterations: int = 15) -> str:
         messages = [

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Activity, ShieldCheck, Lock } from 'lucide-react';
-import { BlockMath } from 'react-katex';
+import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
 import { oracle } from '../../services/oracle';
@@ -41,21 +41,30 @@ interface AgentAisSample {
 // mathVsTextAccents warning flooding the console multiple times per
 // second, freezing the tab). Static content has no reason to remount.
 const AisFormula = () => (
-    <div style={{ padding: '8px 0', opacity: 0.9 }}>
-        <BlockMath math={"\\Delta_{AIS} = 1 - \\left( \\sum w_i S_i \\right) \\times ZK_{boost}"} />
-    </div>
+    <div 
+        style={{ padding: '8px 0', color: 'var(--text-primary)', fontSize: '1.1rem', display: 'flex', justifyContent: 'center' }}
+        dangerouslySetInnerHTML={{ 
+            __html: katex.renderToString("\\Delta_{\\text{AIS}} = 1 - \\left( \\sum w_i S_i \\right) \\times \\text{ZK}_{\\text{boost}}", { displayMode: true, throwOnError: false }) 
+        }} 
+    />
 );
 
 const BccFormula = () => (
-    <div style={{ padding: '8px 0', opacity: 0.9 }}>
-        <BlockMath math={"\\rho_{BCC} = \\left( \\frac{N_{blocked}}{N_{total}} \\right) \\times 100"} />
-    </div>
+    <div 
+        style={{ padding: '8px 0', color: 'var(--text-primary)', fontSize: '1.1rem', display: 'flex', justifyContent: 'center' }}
+        dangerouslySetInnerHTML={{ 
+            __html: katex.renderToString("\\rho_{\\text{BCC}} = \\left( \\frac{N_{\\text{blocked}}}{N_{\\text{total}}} \\right) \\times 100", { displayMode: true, throwOnError: false }) 
+        }} 
+    />
 );
 
 const ExposureFormula = () => (
-    <div style={{ padding: '8px 0', opacity: 0.9 }}>
-        <BlockMath math={"E_{risk} = \\int P(leak) \\cdot C_{staked} \\, dt"} />
-    </div>
+    <div 
+        style={{ padding: '8px 0', color: 'var(--text-primary)', fontSize: '1.1rem', display: 'flex', justifyContent: 'center' }}
+        dangerouslySetInnerHTML={{ 
+            __html: katex.renderToString("E_{\\text{risk}} = \\int P(\\text{leak}) \\cdot C_{\\text{staked}} \\, dt", { displayMode: true, throwOnError: false }) 
+        }} 
+    />
 );
 
 export const TriMetricWidget: React.FC = () => {
