@@ -2,10 +2,14 @@ import { useState, useEffect } from 'react';
 import { TopBar } from '../components/TopBar';
 import { ArrowDownToLine, Send, Repeat, Plus, History, Wallet, Cpu, ShieldAlert, MoreHorizontal, XCircle } from 'lucide-react';
 import { ActuarialHub } from '../components/ActuarialHub';
+import { MarketsEscrowPanel } from '../components/finance/MarketsEscrowPanel';
 import { useAgent } from '../contexts/AgentContext';
 import { oracle, type TransactionDto } from '../services/oracle';
 import { SeededDataBadge } from '../shared/SeededDataBadge';
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { useAccount } from 'wagmi';
+import { formatUnits } from 'viem';
+import { activeChain } from '../chain/wagmi';
 
 // Mock data for wallet
 const ASSETS = [
@@ -41,6 +45,8 @@ const ALLOWANCES = [
 export const FinancePage = () => {
   const [activeTab, setActiveTab] = useState<'wallet' | 'markets' | 'stability'>('wallet');
   const { selectedAgent } = useAgent();
+  const { address } = useAccount();
+  const explorerUrl = activeChain.blockExplorers?.default.url;
   const [itkBalance, setItkBalance] = useState<string | null>(null);
   const [transactions, setTransactions] = useState(TRANSACTIONS);
   const [allowances, setAllowances] = useState(ALLOWANCES);
@@ -60,10 +66,12 @@ export const FinancePage = () => {
     return () => { cancelled = true; };
   }, [selectedAgent]);
 
-  // If we have live ITK balance, merge it into our ASSETS mock
+  // If we have live ITK balance, merge it into our ASSETS mock. `itk_balance` from
+  // GET /v1/agent/{id}/wallet is the raw on-chain U256 wei string (18 decimals, same
+  // as the ERC-20 IntegrityToken contract) — must be scaled down before display.
   const displayAssets = ASSETS.map(a => {
     if (a.symbol === 'ITK' && itkBalance) {
-      return { ...a, balance: Number(itkBalance).toLocaleString() };
+      return { ...a, balance: Number(formatUnits(BigInt(itkBalance), 18)).toLocaleString() };
     }
     return a;
   });
@@ -114,19 +122,24 @@ export const FinancePage = () => {
                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></div>
                 Base L2 Network
                 <div style={{ width: '1px', height: '12px', background: 'var(--border-color)', margin: '0 4px' }}></div>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>0x7F...3B92</span>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>
+                  {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
+                </span>
               </div>
 
-              <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 600, letterSpacing: '0.05em' }}>TOTAL PORTFOLIO VALUE</div>
+              <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 600, letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                TOTAL PORTFOLIO VALUE
+                <SeededDataBadge label="ETH/USDC balances, prices & trend are seeded — only ITK is real" />
+              </div>
               <div style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <span style={{ color: 'var(--text-muted)' }}>$</span>
                 {totalUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{ color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '32px' }}>
-                + $1,240.50 (4.2%) <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Today</span>
+                + $1,240.50 (4.2%) <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Today (seeded)</span>
               </div>
 
-              {/* TREND CHART */}
+              {/* TREND CHART — seeded, no historical portfolio-value endpoint exists */}
               <div style={{ width: '100%', height: '120px', marginBottom: '40px', marginTop: '-10px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={PORTFOLIO_HISTORY} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
@@ -150,13 +163,17 @@ export const FinancePage = () => {
               {/* ACTION BUTTONS */}
               <div style={{ display: 'flex', gap: '24px' }}>
                 {[
-                  { icon: <ArrowDownToLine size={20} />, label: 'Receive', color: 'var(--accent-primary)' },
-                  { icon: <Send size={20} />, label: 'Send', color: 'var(--text-primary)' },
-                  { icon: <Repeat size={20} />, label: 'Swap', color: 'var(--text-primary)' },
-                  { icon: <Plus size={20} />, label: 'Buy', color: 'var(--text-primary)' },
+                  { icon: <ArrowDownToLine size={20} />, label: 'Receive', color: 'var(--accent-primary)', reason: 'No wallet-address / QR display is wired yet.' },
+                  { icon: <Send size={20} />, label: 'Send', color: 'var(--text-primary)', reason: 'No real transfer transaction is wired yet.' },
+                  { icon: <Repeat size={20} />, label: 'Swap', color: 'var(--text-primary)', reason: 'No DEX/swap integration exists anywhere in this stack.' },
+                  { icon: <Plus size={20} />, label: 'Buy', color: 'var(--text-primary)', reason: 'No fiat on-ramp integration exists anywhere in this stack.' },
                 ].map((action, i) => (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '24px', background: action.color === 'var(--accent-primary)' ? 'var(--accent-primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: action.color === 'var(--accent-primary)' ? '#000' : 'var(--text-primary)', transition: 'transform 0.2s', ...{ ':hover': { transform: 'scale(1.05)' } } as any }}>
+                  <div
+                    key={i}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'not-allowed', opacity: 0.5 }}
+                    title={`Not yet implemented: ${action.reason}`}
+                  >
+                    <div style={{ width: '48px', height: '48px', borderRadius: '24px', background: action.color === 'var(--accent-primary)' ? 'var(--accent-primary)' : 'var(--bg-surface)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: action.color === 'var(--accent-primary)' ? '#000' : 'var(--text-primary)' }}>
                       {action.icon}
                     </div>
                     <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>{action.label}</span>
@@ -181,7 +198,10 @@ export const FinancePage = () => {
                             {asset.symbol.substring(0, 3)}
                           </div>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: '15px' }}>{asset.name}</div>
+                            <div style={{ fontWeight: 700, fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {asset.name}
+                              {asset.symbol !== 'ITK' && <SeededDataBadge label="No ETH/USDC balance or price-feed endpoint exists yet" />}
+                            </div>
                             <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{asset.balance} {asset.symbol}</div>
                           </div>
                         </div>
@@ -200,6 +220,9 @@ export const FinancePage = () => {
                 <div className="card">
                   <h2 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                     <History size={18} /> Recent Activity
+                    {/* Real when GET /v1/agent/{id}/wallet returns transaction_history for the
+                        selected agent; falls back to this seeded list when it doesn't. */}
+                    {transactions === TRANSACTIONS && <SeededDataBadge label="No real transaction history for this agent yet" />}
                   </h2>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {transactions.map((tx, i) => (
@@ -227,7 +250,15 @@ export const FinancePage = () => {
                       </div>
                     ))}
                   </div>
-                  <button className="btn btn-outline" style={{ width: '100%', marginTop: '16px', fontSize: '13px' }}>View Explorer</button>
+                  <button
+                    className="btn btn-outline"
+                    style={{ width: '100%', marginTop: '16px', fontSize: '13px' }}
+                    disabled={!explorerUrl || !address}
+                    onClick={() => explorerUrl && address && window.open(`${explorerUrl}/address/${address}`, '_blank', 'noopener,noreferrer')}
+                    title={!address ? 'Connect a wallet first' : !explorerUrl ? `No block explorer configured for ${activeChain.name}` : `Open ${activeChain.name} explorer for ${address}`}
+                  >
+                    View Explorer
+                  </button>
                 </div>
               </div>
 
@@ -280,7 +311,12 @@ export const FinancePage = () => {
                     })}
                   </div>
 
-                  <button className="btn btn-secondary" style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ width: '100%', marginTop: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', opacity: 0.5, cursor: 'not-allowed' }}
+                    disabled
+                    title="OPA policies (bcc_middleware/policies/*.rego) are static files today, not dynamically editable via a UI -- there is no backend to create a new allowance rule against."
+                  >
                     <Plus size={16} /> New Allowance Rule
                   </button>
                 </div>
@@ -290,7 +326,7 @@ export const FinancePage = () => {
           </div>
         )}
 
-        {activeTab === 'markets' && <ActuarialHub mode="markets" />}
+        {activeTab === 'markets' && <MarketsEscrowPanel />}
         {activeTab === 'stability' && <ActuarialHub mode="stability" />}
 
       </div>

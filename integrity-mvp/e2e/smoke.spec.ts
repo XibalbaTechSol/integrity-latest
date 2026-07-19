@@ -1,9 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 const ROUTES = [
-    '/', '/landing', '/identity', '/contracts', '/cognition', '/settings',
-    '/telemetry', '/exchange', '/chain-of-thought', '/compare-traces',
-    '/finance', '/intelligence', '/shield', '/agents', '/documents', '/audit',
+    '/', '/landing', '/identity', '/contracts', '/settings',
+    '/finance', '/traces', '/diagnostics', '/shield', '/agents',
 ];
 
 test.describe('every route renders without a console/page error', () => {
@@ -13,7 +12,13 @@ test.describe('every route renders without a console/page error', () => {
             page.on('pageerror', (err) => errors.push(err.message));
             page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
 
-            await page.goto(route, { waitUntil: 'networkidle' });
+            // 'networkidle' never resolves on routes that hold an open SSE
+            // (EventSource) connection to the oracle's real-time stream
+            // (Dashboard, Trace Analytics) — 'load' plus a short settle
+            // window still catches real render/console errors without
+            // waiting on a connection that's supposed to stay open.
+            await page.goto(route, { waitUntil: 'load' });
+            await page.waitForTimeout(1000);
             expect(errors, `console/page errors on ${route}: ${errors.join('; ')}`).toEqual([]);
         });
     }

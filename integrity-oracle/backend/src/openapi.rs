@@ -87,8 +87,22 @@ pub struct ApiDocCore;
 /// the 16-item limit goes here instead. See this module's doc comment.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_wallet, handlers::get_trace_tree),
-    components(schemas(handlers::WalletPositionDto, handlers::WalletResponse, handlers::TelemetryEventDetailDto, handlers::AgentJudgeEvaluationDto, handlers::TraceTreeResponse, crate::trace_tree::SpanTreeNode,)),
+    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::get_audit_log, handlers::get_recent_traces),
+    components(schemas(
+        handlers::WalletPositionDto,
+        handlers::WalletResponse,
+        handlers::TelemetryEventDetailDto,
+        handlers::AgentJudgeEvaluationDto,
+        handlers::TraceTreeResponse,
+        crate::trace_tree::SpanTreeNode,
+        handlers::AuditLogIngestRequest,
+        handlers::AuditLogIngestResponse,
+        handlers::AuditLogEntryDto,
+        handlers::RecentTraceDto,
+    )),
+    tags(
+        (name = "audit", description = "Real, durable audit trail (BCC intercept decisions + flagged telemetry)"),
+    ),
 )]
 pub struct ApiDocExtra;
 

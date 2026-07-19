@@ -15,6 +15,10 @@ why each step is where it is):
      if we can't positively confirm an active BAA.
   7. Merkle batch admission + best-effort anchoring (not a gate -- see
      app/anchor.py).
+  8. Best-effort audit reporting -- every allow AND deny decision (not just
+     approved ones) is reported to the oracle's durable `audit_log` table
+     (app/audit.py) so the dashboard's Audit Logs panel has a real event
+     source. Never a gate; see app/audit.py's docstring for why.
 
 Every deny path records *why* in the response `reason` field with a
 consistent `SOME_CODE: detail` shape so operators/tests can pattern-match
@@ -24,7 +28,6 @@ on the failure category.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -39,10 +42,12 @@ from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher
 from app.nonce_store import NonceStore
 from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
-from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse
+from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse, VerifyTokenRequest, VerifyTokenResponse
 from app import anchor as anchor_module
+from app import audit as audit_module
 from app import opa_client
 from app import scoring_loop as scoring_loop_module
+from app import verification_token as verification_token_module
 
 logger = logging.getLogger("bcc_middleware")
 
@@ -98,7 +103,34 @@ nonce_store = NonceStore()
 batcher = MerkleBatcher(batch_size=default_settings.merkle_batch_size)
 
 
-def _deny(reason: str) -> BCCInterceptResponse:
+# Holds references to in-flight audit-report background tasks so asyncio doesn't
+# garbage-collect (and silently cancel) them before the HTTP call completes --
+# `asyncio.ensure_future` alone doesn't keep a task alive on its own.
+_audit_report_tasks: set[asyncio.Task] = set()
+
+
+def _report_decision_background(settings: Settings, *, agent_id: str | None, decision: str, reason_code: str | None = None, detail: str | None = None, intent_type: str | None = None) -> None:
+    task = asyncio.ensure_future(
+        asyncio.to_thread(
+            audit_module.report_decision,
+            settings,
+            agent_id=agent_id,
+            decision=decision,
+            reason_code=reason_code,
+            detail=detail,
+            intent_type=intent_type,
+        )
+    )
+    _audit_report_tasks.add(task)
+    task.add_done_callback(_audit_report_tasks.discard)
+
+
+def _deny(reason: str, *, agent_id: str | None, settings: Settings, intent_type: str | None = None) -> BCCInterceptResponse:
+    # Reported in the background (not awaited) so a slow/unreachable oracle can
+    # never add latency to this response -- see audit.py's module docstring for
+    # why this is best-effort, same asymmetry as anchor.py's on-chain anchoring.
+    code, _, detail = reason.partition(": ")
+    _report_decision_background(settings, agent_id=agent_id, decision="deny", reason_code=code, detail=detail or reason, intent_type=intent_type)
     return BCCInterceptResponse(authorized=False, reason=reason)
 
 
@@ -130,7 +162,7 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # --- 1. Circuit breaker -------------------------------------------------
     if circuit_breaker.is_locked_out(agent_id):
         remaining = int(circuit_breaker.lockout_remaining_seconds(agent_id))
-        return _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations")
+        return _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 2. Signature verification ------------------------------------------
     # An invalid signature means we cannot trust `agent_id` authored this
@@ -141,23 +173,23 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         verify_commitment_signature(commitment)
     except SignatureVerificationError as exc:
         circuit_breaker.record_violation(agent_id)
-        return _deny(f"BCC_INVALID_SIGNATURE: {exc}")
+        return _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 3. Replay protection ------------------------------------------------
     if not nonce_store.check_and_record(agent_id, commitment.nonce):
         circuit_breaker.record_violation(agent_id)
-        return _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent")
+        return _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 4. Freshness ----------------------------------------------------------
     age_ms = (time.time() * 1000) - commitment.timestamp
     if age_ms > settings.max_commitment_age_ms:
         circuit_breaker.record_violation(agent_id)
-        return _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms")
+        return _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
     if age_ms < -settings.max_commitment_age_ms:
         # Clock skew / a timestamp claiming to be from the future beyond our
         # tolerance is just as suspicious as a stale one.
         circuit_breaker.record_violation(agent_id)
-        return _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future")
+        return _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
     # verification_tier is resolved unconditionally (not just for intent_types the
@@ -165,13 +197,14 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # `min_tier_by_intent_type` against -- see chain.resolve_verification_tier's
     # docstring for why an unresolvable tier fails to 0 rather than failing the
     # whole request closed.
+    verification_tier = await asyncio.to_thread(resolve_verification_tier, commitment.agent_id, oracle_url=settings.oracle_url)
     opa_input = {
         "agent_id": commitment.agent_id,
         "intent_type": commitment.intent_type,
         "intended_state_hash": commitment.intended_state_hash,
         "nonce": commitment.nonce,
         "timestamp": commitment.timestamp,
-        "verification_tier": resolve_verification_tier(commitment.agent_id, oracle_url=settings.oracle_url),
+        "verification_tier": verification_tier,
     }
     try:
         decision = await opa_evaluate(settings, opa_input)
@@ -180,12 +213,12 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         # breaker (see circuit_breaker.py docstring). Still deny: this is
         # the fail-closed behavior the interface contract requires.
         logger.error("OPA unavailable, failing closed: %s", exc)
-        return _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}")
+        return _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     if not decision.allow:
         circuit_breaker.record_violation(agent_id)
         reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
-        return _deny(f"OPA_REJECTION: {reasons}")
+        return _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 6. On-chain BAA check (FAIL CLOSED), only for healthcare-vertical intents ---
     # `commitment.covered_entity_address` (schemas.py) names WHICH covered
@@ -195,20 +228,28 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # unset here, check_baa_status fails closed with CANNOT_VERIFY rather
     # than guessing or skipping the check.
     if decision.requires_baa:
-        status, detail = check_baa_status(settings, agent_id, commitment.covered_entity_address)
+        status, detail = await asyncio.to_thread(check_baa_status, settings, agent_id, commitment.covered_entity_address)
         if status is not BAAStatus.ACTIVE:
             # Both "definitively inactive" and "cannot verify" deny -- an
             # unverifiable BAA must never be treated as compliant.
             circuit_breaker.record_violation(agent_id)
             code = "BAA_INACTIVE" if status is BAAStatus.INACTIVE else "BAA_CANNOT_VERIFY"
-            return _deny(f"{code}: {detail}")
+            return _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 7. Approved: admit to the merkle batch, issue a verification token ---
     batch_index = batcher.add(commitment)
-    _flush_and_anchor(settings)
+    await asyncio.to_thread(_flush_and_anchor, settings)
 
-    token_material = f"{commitment.agent_id}|{commitment.nonce}|{commitment.intended_state_hash}|{time.time()}"
-    token = hashlib.sha256(token_material.encode()).hexdigest()
+    token = verification_token_module.issue_token(
+        settings, commitment.agent_id, commitment.nonce, commitment.intended_state_hash
+    )
+    _report_decision_background(
+        settings,
+        agent_id=agent_id,
+        decision="allow",
+        detail=f"admitted to merkle batch index {batch_index}",
+        intent_type=commitment.intent_type,
+    )
     return BCCInterceptResponse(authorized=True, verification_token=token, batch_index=batch_index)
 
 
@@ -242,6 +283,19 @@ async def force_score_sync() -> dict:
     }
 
 
+@app.post("/v1/bcc/verify_token", response_model=VerifyTokenResponse)
+async def verify_token(request: VerifyTokenRequest) -> VerifyTokenResponse:
+    """
+    Lets a relying party (not just the agent that received the token) ask
+    this service whether `token` was genuinely issued for exactly the given
+    (agent_id, nonce, intended_state_hash) -- see app/verification_token.py.
+    """
+    valid = verification_token_module.verify_token(
+        default_settings, request.token, request.agent_id, request.nonce, request.intended_state_hash
+    )
+    return VerifyTokenResponse(valid=valid)
+
+
 @app.post("/v1/bcc/anchor/flush")
 async def force_flush() -> dict:
     """
@@ -253,15 +307,24 @@ async def force_flush() -> dict:
     flushed = batcher.flush()
     if flushed is None:
         return {"flushed": False, "detail": "no pending commitments"}
-    root, leaves = flushed
+    _discarded_full_batch_root, leaves = flushed
     # Per-agent anchoring: one StateAnchor tx per distinct agent in the batch.
+    # NOTE: no single "root" field here anymore -- anchoring is per-agent
+    # (see anchor.py), so the full-batch root above matches nothing that was
+    # actually submitted on-chain. Each agent's OWN sub-root (the thing that
+    # really got anchored, or attempted) is under `agents[agent_id].root`
+    # instead (PRODUCTION_GAPS.md §5).
     results = anchor_module.anchor_batch_per_agent(default_settings, leaves)
     return {
         "flushed": True,
-        "root": f"0x{root.hex()}",
         "leaf_count": len(leaves),
         "agents": {
-            agent_id: {"anchored": r.submitted, "detail": r.detail, "tx_hash": r.tx_hash}
+            agent_id: {
+                "anchored": r.submitted,
+                "detail": r.detail,
+                "tx_hash": r.tx_hash,
+                "root": f"0x{r.root.hex()}" if r.root is not None else None,
+            }
             for agent_id, r in results.items()
         },
     }

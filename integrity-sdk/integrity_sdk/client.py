@@ -23,13 +23,14 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
 from . import bcc
 from .batcher import TelemetryBatcher
 from .did import Keypair
-from .telemetry import derive, intent as intent_module, metrics as metrics_module, tracing
+from .telemetry import core as telemetry_core, derive, intent as intent_module, metrics as metrics_module, tracing
 
 logger = logging.getLogger("integrity_sdk.client")
 
@@ -56,9 +57,46 @@ class IntegrityClient:
         flush_interval_sec: float = 5.0,
         keypair: Optional[Keypair] = None,
         bcc_nonce_store: Optional[Any] = None,
+        otlp_endpoint: Optional[str] = None,
+        enable_otel_export: bool = True,
     ):
         self.agent_id = agent_id
         self.oracle_url = (oracle_url or os.getenv("ORACLE_URL", "http://localhost:8080")).rstrip("/")
+        # FIXED 2026-07-16 — `client.traceable(...)`/`trace_run(..., client=self)`
+        # is this SDK's own documented "recommended general-purpose tracing
+        # API" (see telemetry/tracing.py's module docstring), and it opens a
+        # REAL OTel span via `get_tracer(...).start_as_current_span(...)` on
+        # every call — but nothing ever installed a real TracerProvider/
+        # exporter before this fix. `get_tracer` silently returns OTel's
+        # default no-op tracer in that state, so every span this API ever
+        # produced was discarded before it ever reached the process boundary,
+        # let alone the oracle's `otel_spans` table — real nesting
+        # (`contextvars`-propagated parent/child), real PHI redaction, real
+        # attributes, all computed and then thrown away. Confirmed by
+        # actually tracing an agent run end-to-end and finding zero rows in
+        # the oracle's `otel_spans` table despite no errors anywhere.
+        # `telemetry/core.py::init_telemetry` is the one thing that installs
+        # a real exporter, but it was only ever called by
+        # `telemetry/mlflow_tracing.py`'s optional autolog path — never by
+        # this client, despite `agent_id` (everything `init_telemetry` needs
+        # besides an endpoint) being known right here at construction time.
+        # Safe to call unconditionally: `init_telemetry` is idempotent
+        # (module-level `_initialized` guard, first call wins) and, per its
+        # own docstring, a missing/unreachable OTLP collector fails the
+        # background export silently rather than raising — matches this
+        # class's own "telemetry is best-effort, never blocks the agent's
+        # real work" rule stated above. The OTLP gRPC collector is the same
+        # oracle-backend process that serves `oracle_url`'s HTTP API (see
+        # docker-compose.yml — one container, two ports), so deriving the
+        # OTLP host from `oracle_url` rather than requiring a second URL a
+        # caller has to remember to keep in sync is a real architectural
+        # fact of this deployment, not a guess. `enable_otel_export=False`
+        # opts out entirely (e.g. a test that wants to assert on the
+        # no-op-tracer state itself); `otlp_endpoint=` overrides the derived
+        # host:4317 default for a non-standard topology.
+        if enable_otel_export:
+            endpoint = otlp_endpoint or f"{urlparse(self.oracle_url).hostname or 'localhost'}:4317"
+            telemetry_core.init_telemetry(agent_id=agent_id, endpoint=endpoint)
         self._batcher = TelemetryBatcher(batch_size_limit=batch_size_limit, flush_interval_sec=flush_interval_sec)
         self._trace_runs: List[Dict[str, Any]] = []
         self._auto_flush = auto_flush

@@ -71,6 +71,9 @@ consumer.
 ceiling clamp — is a **`[PLANNED]`** design, not implemented in
 `scoring-core` today; see [Identity Ceiling](identity-ceiling.md).
 
-Related: [Behavioral Commitment Chain](bcc.md), [Integrity Oracle](../entities/integrity-oracle.md),
+Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
+collection→batching→signing→oracle-pipeline writeup; this page covers only
+the formula + the server-side re-derivation trust model in depth),
+[Behavioral Commitment Chain](bcc.md), [Integrity Oracle](../entities/integrity-oracle.md),
 [Local Metrology](local-metrology.md), [AIS API — Versioned Wire Spec](ais-api-spec.md),
 [Identity Ceiling & Verification Ladder](identity-ceiling.md).

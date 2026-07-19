@@ -154,7 +154,7 @@ export const ProgrammableEscrowsSection = () => {
 
                         <div style={{ display: 'flex', gap: '20px' }}>
                             <button 
-                                onClick={() => navigate('/integrity')}
+                                onClick={() => navigate('/finance')}
                                 className="btn btn-primary" 
                             >
                                 OPEN ESCROWS

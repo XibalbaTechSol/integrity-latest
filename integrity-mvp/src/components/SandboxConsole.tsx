@@ -1,5 +1,4 @@
-// @ts-nocheck
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Zap, Code } from 'lucide-react';
 
@@ -60,7 +59,7 @@ export const SandboxConsole = () => {
 
     useEffect(() => {
         calculateScores();
-    }, [performanceVariance, hgiRaw, gpuHours, tier, calculateScores]);
+    }, [calculateScores]);
 
     return (
         <div className="enterprise-card" style={{ padding: '40px' }}>
@@ -99,10 +98,50 @@ export const SandboxConsole = () => {
 
                     <div className="input-group">
                         <label>Verified GPU Hours (Sacrifice)</label>
-                        <input 
-                            type="number" 
-                            value={gpuHours} 
-                            onChange={(e) => setGpuHours(parseInt(e.target.value))} 
+                        <input
+                            type="number"
+                            value={gpuHours}
+                            onChange={(e) => setGpuHours(parseInt(e.target.value))}
+                        />
+                        <div className="input-footer">Logarithmic scale applied</div>
+                    </div>
+
+                    <div className="input-group">
+                        <label>Avg. Partner AIS (Trustflow)</label>
+                        <input
+                            type="range" min="0" max="1000" step="10"
+                            value={avgPartnerAIS}
+                            onChange={(e) => setAvgPartnerAIS(parseFloat(e.target.value))}
+                        />
+                        <div className="input-footer">Avg. Partner AIS: {avgPartnerAIS}</div>
+                    </div>
+
+                    <div className="input-group">
+                        <label>Staked Ratio</label>
+                        <input
+                            type="range" min="0" max="1" step="0.01"
+                            value={stakedRatio}
+                            onChange={(e) => setStakedRatio(parseFloat(e.target.value))}
+                        />
+                        <div className="input-footer">Staked Ratio: {stakedRatio}</div>
+                    </div>
+
+                    <div className="input-group">
+                        <label>Agent Age (Days)</label>
+                        <input
+                            type="number"
+                            value={agentAge}
+                            onChange={(e) => setAgentAge(parseInt(e.target.value))}
+                        />
+                        <div className="input-footer">Logarithmic scale applied</div>
+                    </div>
+
+                    <div className="input-group">
+                        <label>Transaction Volume (ITK)</label>
+                        <input
+                            type="number"
+                            value={volume}
+                            onChange={(e) => setVolume(parseInt(e.target.value))}
                         />
                         <div className="input-footer">Logarithmic scale applied</div>
                     </div>
@@ -145,7 +184,7 @@ export const SandboxConsole = () => {
                             <span className="text-gold">× {results?.boost}</span>
                         </div>
                         <div className="result-row">
-                            <span>Base Integrity</span>
+                            <span>Base Integrity <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)' }}>(incl. fixed 0.95 audit score)</span></span>
                             <span className="text-gold">{results?.base}</span>
                         </div>
                         <div className="result-row" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>

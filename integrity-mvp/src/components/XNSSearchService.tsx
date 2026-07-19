@@ -1,12 +1,44 @@
 import React, { useState } from 'react';
-import { Search, Globe, Fingerprint, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
+import { Search, Fingerprint, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
+import { oracle, OracleError } from '../services/oracle';
+
+// Despite the "XNS" name, this does a real DID/address lookup against the
+// oracle -- there is no on-chain XibalbaNameService handle resolution
+// wired up anywhere in this monorepo (previously this component silently
+// faked one: any query returned the same hardcoded "Xibalba Node" result).
+// Not renamed in this pass since IdentityPage.tsx imports it by this name.
+
+// Matches RegistryExplorer.tsx's real verification_tier labels exactly --
+// see that file's `tierLabels` for the source of truth.
+const TIER_LABELS: Record<number, { label: string; trust: string }> = {
+    0: { label: 'Unverified', trust: 'None' },
+    1: { label: 'Sovereign', trust: 'Standard' },
+    2: { label: 'Linked', trust: 'High' },
+    3: { label: 'Institutional', trust: 'Maximum' },
+};
+
+interface XNSResult {
+    alias: string;
+    eth_address: string | null;
+    current_ais: number | null;
+    verification_tier: string;
+    trust_level: string;
+}
 
 export const XNSSearchService: React.FC = () => {
     const [query, setQuery] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [result, setResult] = useState<any>(null);
+    const [result, setResult] = useState<XNSResult | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    // Real GET /v1/agent/{id} + /ais lookup -- same real endpoints
+    // RegistryExplorer.tsx's registry search uses. There is no separate
+    // on-chain XNS handle->DID resolution route anywhere in this monorepo
+    // (XNS handles like "xibalba.intg" would need a real
+    // XibalbaNameService contract read), so a bare handle query (no
+    // "did:integrity:" prefix, no "0x" address) is passed straight through
+    // and will simply 404 against the oracle rather than being silently
+    // guessed at.
     const handleSearch = async () => {
         if (!query.trim()) return;
         setIsLoading(true);
@@ -14,19 +46,31 @@ export const XNSSearchService: React.FC = () => {
         setResult(null);
 
         try {
-            await new Promise(r => setTimeout(r, 1000));
-            if (query === 'notfound') throw new Error('Not found');
-            
+            const id = query.trim();
+            const agent = await oracle.getAgent(id);
+            let ais: number | null = null;
+            let tier = agent.verification_tier;
+            try {
+                const aisRes = await oracle.getAis(id);
+                ais = aisRes.ais;
+            } catch {
+                // AIS lookup failing (e.g. agent has no telemetry yet) shouldn't
+                // hide the real agent-identity result we already have.
+            }
+            const tierInfo = TIER_LABELS[tier] ?? { label: String(tier), trust: 'Unknown' };
             setResult({
-                alias: "Xibalba Node",
-                eth_address: "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
-                current_ais: 950,
-                verification_tier: "A",
-                trust_level: "High",
-                xns_handle: query.includes('.') ? query : query + '.intg'
+                alias: agent.id,
+                eth_address: agent.primitives?.sovereign_agent ?? null,
+                current_ais: ais,
+                verification_tier: tierInfo.label,
+                trust_level: tierInfo.trust,
             });
-        } catch {
-            setError("Agent not found in the XNS Registry.");
+        } catch (err) {
+            if (err instanceof OracleError && err.status === 404) {
+                setError('Agent not found in the Integrity Registry. There is no separate XNS handle registry yet -- search by DID or registered address.');
+            } else {
+                setError('Unable to reach the Xibalba Identity Oracle. Please try again.');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -49,7 +93,7 @@ export const XNSSearchService: React.FC = () => {
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="Search handle (e.g. xibalba.intg) or DID..."
+                    placeholder="Search by DID or registered address..."
                     style={{
                         flex: 1,
                         background: 'transparent',
@@ -115,13 +159,13 @@ export const XNSSearchService: React.FC = () => {
                                     {result.alias || "Agent Identified"}
                                 </h4>
                                 <p className="mono" style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                                    {result.eth_address?.slice(0, 8)}...{result.eth_address?.slice(-8)}
+                                    {result.eth_address ? `${result.eth_address.slice(0, 8)}...${result.eth_address.slice(-8)}` : 'No on-chain address resolved'}
                                 </p>
                             </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--gold)' }}>
-                                {result.current_ais}
+                                {result.current_ais === null ? '—' : Math.round(result.current_ais)}
                             </div>
                             <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 800, letterSpacing: '0.05em' }}>
                                 AIS SCORE
@@ -132,7 +176,7 @@ export const XNSSearchService: React.FC = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                          <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                             <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '4px' }}>VERIFICATION</div>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#60a5fa' }}>Tier {result.verification_tier}</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#60a5fa' }}>{result.verification_tier}</div>
                          </div>
                          <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                             <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '4px' }}>TRUST LEVEL</div>
@@ -140,18 +184,12 @@ export const XNSSearchService: React.FC = () => {
                          </div>
                     </div>
 
-                    {result.xns_handle && (
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'var(--gold)' }}>
-                            <Globe size={14} />
-                            <span style={{ fontWeight: 800 }}>{result.xns_handle}</span>
-                         </div>
-                    )}
                 </div>
             )}
 
             {!result && !error && !isLoading && (
                 <div style={{ textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                    Lookup any agent across the Integrity Network by handle or DID.
+                    Look up any registered agent by DID or address (e.g. did:integrity:...). No separate XNS handle registry exists yet.
                 </div>
             )}
         </div>

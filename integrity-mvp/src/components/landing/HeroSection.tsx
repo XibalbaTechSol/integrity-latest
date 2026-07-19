@@ -40,7 +40,7 @@ export const HeroSection = ({ setContactType, setIsContactOpen }: { setContactTy
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? '0 20px' : '0' }}>
                             <button 
-                                onClick={() => { navigate('/integrity'); window.scrollTo(0, 0); }} 
+                                onClick={() => { navigate('/'); window.scrollTo(0, 0); }}
                                 className="btn btn-primary" 
                                 style={{ padding: isMobile ? '12px 20px' : '16px 32px', fontSize: '0.9rem' }}
                             >

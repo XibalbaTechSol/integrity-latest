@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-07-11
+updated: 2026-07-15
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -12,11 +12,14 @@ source_files:
   - integrity-sdk/integrity_sdk/bcc.py
   - integrity-sdk/integrity_sdk/markets.py
   - integrity-sdk/integrity_sdk/client.py
+  - integrity-sdk/integrity_sdk/batcher.py
   - integrity-sdk/integrity_sdk/telemetry/mlflow_tracing.py
   - integrity-sdk/integrity_sdk/telemetry/derive.py
   - integrity-sdk/integrity_sdk/telemetry/tracing.py
   - integrity-sdk/integrity_sdk/telemetry/intent.py
   - integrity-sdk/integrity_sdk/telemetry/metrics.py
+  - integrity-sdk/integrity_sdk/integrations/openai_integrity.py
+  - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
   - integrity-sdk/integrity_sdk/security/redactor.py
 ---
 
@@ -113,13 +116,36 @@ itself needed a matching fix, see [integrity-oracle](integrity-oracle.md),
 for non-ASCII content to verify correctly). Without a keypair, flush still
 sends a (now honestly-rejected, not silently-malformed) empty signature.
 
+## Telemetry integrations widened + `redact_phi` opt-in default, 2026-07-15
+
+`integrations/openai_integrity.py` and `integrations/langchain_callback.py`
+both gained real, previously-uncaptured operational metadata the
+underlying provider already returns: `model_requested`/`model_actual`,
+`system_fingerprint`, `service_tier`, `tool_calls` (names only —
+`function.arguments`/tool `args` are never captured, since they can carry
+unredacted caller-supplied content), `conversation_length`, and a
+previously-nonexistent error path for the OpenAI wrapper (`error_taxonomy`
+= `type(exception).__name__`, a real provider-native taxonomy; LangChain's
+`on_llm_error` already existed). Neither integration had any test coverage
+before this — both now do (`tests/unit/test_openai_integrity.py`,
+`tests/unit/test_langchain_callback.py`, 13 new tests).
+
+**Real behavior change**: both integrations' `redact_phi` constructor
+parameter now defaults to `False` (previously redaction ran
+unconditionally — see next section for what that means and its risk).
+Full writeup: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md).
+
 ## PHI/PII redaction
 
 `security/redactor.py` — targeted, client-side masking (SSNs, emails,
 phone numbers, credit cards, API keys/private keys, medical record
-numbers). Applied in `integrations/openai_integrity.py` and
-`integrations/langchain_callback.py` before a span attribute/telemetry
-field is set (confirmed still true 2026-07-11).
+numbers). `integrations/openai_integrity.py`/`langchain_callback.py` both
+call it before a span attribute/telemetry field is set, but **only when
+constructed with `redact_phi=True`** (default `False` as of 2026-07-15 —
+see above). Any Xibalba Shield / healthcare-vertical agent must pass that
+flag explicitly; neither wrapper can infer an agent's `compliance_vertical`
+on its own. `telemetry/tracing.py`'s `trace_run`/`traceable` API is
+unaffected by this flag and always redacts.
 
 **Real gap closed 2026-07-11**: the SDK's own documented, *recommended*
 general-purpose tracing API — `telemetry/tracing.py`'s `trace_run`/
@@ -154,14 +180,15 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**97 tests** (`pytest`, confirmed via a real run — up from 67 with the
-2026-07-11 additions: `test_intent.py` (14), `test_tracing.py` (11, this
-file didn't exist before — `tracing.py` had zero dedicated tests), plus new
-cases in `test_client.py` for the telemetry-signing fix and `invoke_intent`
-convenience method): unit + real-anvil integration, always run. Plus **1
-opt-in test** (`test_registration_oracle_e2e.py`, `ORACLE_E2E=1`) covering
-the real oracle-POST path skipped by every always-run test above.
+**135 tests, 1 skipped** (`pytest tests/`, confirmed via a real run — up
+from 97: the 2026-07-15 additions are `test_openai_integrity.py` (7),
+`test_langchain_callback.py` (6), plus attestation/shield/wallet-race
+coverage added earlier the same session): unit + real-anvil integration,
+always run. Plus **1 opt-in test** (`test_registration_oracle_e2e.py`,
+`ORACLE_E2E=1`) covering the real oracle-POST path skipped by every
+always-run test above.
 
-Related: [agent primitives](../concepts/agent-primitives.md),
+Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
+[agent primitives](../concepts/agent-primitives.md),
 [BCC](../concepts/bcc.md), [AIS](../concepts/ais.md),
 [integrity-cli](integrity-cli.md), [AIS API — Versioned Wire Spec](../concepts/ais-api-spec.md).

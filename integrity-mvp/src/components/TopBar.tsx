@@ -2,6 +2,7 @@ import { Search, Bell, ChevronDown, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useAgent } from '../contexts/AgentContext';
 import { ConnectWalletButton } from './ConnectWalletButton';
+import { SeededDataBadge } from '../shared/SeededDataBadge';
 
 interface TopBarProps {
   title: string;
@@ -24,6 +25,9 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
   const { agents, selectedAgentId, setSelectedAgentId, selectedAgent } = useAgent();
   const [isAgentDropdownOpen, setIsAgentDropdownOpen] = useState(false);
 
+  // No notifications endpoint exists anywhere in this monorepo (oracle.ts/
+  // userapi.ts have neither) -- these are fixed seed content, not a live
+  // feed, disclosed via SeededDataBadge in the dropdown header below.
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState([
     { id: 1, title: 'Oracle Connected', message: 'Integrity Oracle sync complete.', time: 'Just now', read: false },
@@ -40,9 +44,9 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
   };
 
   return (
-    <div className="top-bar" style={{ gap: '16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h1>
+    <div className="top-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', borderBottom: '1px solid var(--border-color)', padding: '16px 24px', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flex: 1, minWidth: 0 }}>
+        <h1 style={{ fontSize: '20px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h1>
         {tabs && (
           <div className="custom-scrollbar" style={{ display: 'flex', gap: '24px', marginLeft: '24px', overflowX: 'auto', paddingBottom: '2px' }}>
             {tabs.map((tab) => (
@@ -165,8 +169,9 @@ export const TopBar = ({ title, tabs, activeTab: externalActiveTab, onTabChange,
                   border: '1px solid hsla(var(--border-color-hsl) / 0.5)',
                   boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
                 }}>
-                  <div style={{ padding: '12px 16px', borderBottom: '1px solid hsla(var(--border-color-hsl)/0.3)', fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid hsla(var(--border-color-hsl)/0.3)', fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     Notifications
+                    <SeededDataBadge label="No notifications feed exists yet" />
                   </div>
                   <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                     {notifications.map(n => (

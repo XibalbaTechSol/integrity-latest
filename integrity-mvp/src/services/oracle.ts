@@ -176,6 +176,12 @@ export interface OtelVolumeBucket {
     span_count: number;
 }
 
+export interface RecentTraceDto {
+    trace_id: string;
+    name: string;
+    start_time: string;
+}
+
 // Bucket granularity accepted by the oracle's history endpoints — see
 // backend::handlers::parse_bucket_interval's allowlist.
 export type HistoryBucket = '5m' | '15m' | '1h' | '6h' | '1d' | '1w';
@@ -199,6 +205,17 @@ export interface TraceTreeResponse {
     span_count: number;
     truncated: boolean;
     roots: SpanTreeNode[];
+}
+
+export interface AuditLogEntryDto {
+    id: string;
+    agent_id: string | null;
+    source: string;
+    event_type: string;
+    decision: string;
+    reason_code: string | null;
+    detail: string | null;
+    created_at: string;
 }
 
 // Server-Sent Event frames pushed over /v1/stream and /v1/agent/{id}/stream — mirrors
@@ -260,7 +277,23 @@ export const oracle = {
         get<VolumeBucket[]>(`/v1/agent/${encodeURIComponent(id)}/telemetry/volume${historyQuery(bucket, since)}`),
     getOtelVolume: (id: string, bucket?: HistoryBucket, since?: string) =>
         get<OtelVolumeBucket[]>(`/v1/agent/${encodeURIComponent(id)}/otel/volume${historyQuery(bucket, since)}`),
+    // Historical trace discovery — previously the only way to find a trace_id was to
+    // watch the live SSE stream while a tab was open, so any trace generated earlier
+    // was invisible even though it's real, queryable data. See backend::handlers::get_recent_traces.
+    getRecentTraces: (id: string, limit?: number) =>
+        get<RecentTraceDto[]>(`/v1/agent/${encodeURIComponent(id)}/otel/traces${limit ? `?limit=${limit}` : ''}`),
     getTraceTree: (traceId: string) => get<TraceTreeResponse>(`/v1/traces/${encodeURIComponent(traceId)}`),
+
+    // Real, durable audit trail backed by bcc_middleware's ALLOW/DENY reporting
+    // (POST /v1/audit/ingest) merged with flagged telemetry — see
+    // backend::handlers::get_audit_log. Omit agentId for the global feed.
+    getAuditLog: (agentId?: string, limit?: number) => {
+        const params = new URLSearchParams();
+        if (agentId) params.set('agent_id', agentId);
+        if (limit) params.set('limit', String(limit));
+        const qs = params.toString();
+        return get<AuditLogEntryDto[]>(`/v1/audit-log${qs ? `?${qs}` : ''}`);
+    },
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

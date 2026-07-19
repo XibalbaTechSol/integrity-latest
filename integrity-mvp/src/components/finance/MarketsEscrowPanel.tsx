@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react';
-import { TopBar } from '../components/TopBar';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
-import { oracle, type MarketSummaryDto } from '../services/oracle';
-import { SeededDataBadge } from '../shared/SeededDataBadge';
+import { oracle, type MarketSummaryDto } from '../../services/oracle';
+import { SeededDataBadge } from '../../shared/SeededDataBadge';
 import { useAccount } from 'wagmi';
 import { waitForTransactionReceipt, readContract } from '@wagmi/core';
 import { parseUnits } from 'viem';
-import { useAgent } from '../contexts/AgentContext';
-import { useToast } from '../contexts/ToastContext';
-import { useSovereignAgentWrite } from '../hooks/useSovereignAgentWrite';
-import { wagmiConfig } from '../chain/wagmi';
-import { abis } from '../chain/abis';
-import { singleton } from '../chain/deployments';
+import { useAgent } from '../../contexts/AgentContext';
+import { useToast } from '../../contexts/ToastContext';
+import { useSovereignAgentWrite } from '../../hooks/useSovereignAgentWrite';
+import { wagmiConfig } from '../../chain/wagmi';
+import { abis } from '../../chain/abis';
+import { singleton } from '../../chain/deployments';
 
 // Illustrative market trend data — IntegrityMarket is a pari-mutuel
 // pool. We simulate a historical trend based on the current probability.
@@ -24,7 +23,7 @@ const yesNoSplit = (market: MarketSummaryDto) => {
   return { yes, no: 100 - yes };
 };
 
-export const ExchangePage = () => {
+export const MarketsEscrowPanel = () => {
   const [markets, setMarkets] = useState<MarketSummaryDto[]>([]);
   const [marketsError, setMarketsError] = useState<string | null>(null);
   const [marketsLoading, setMarketsLoading] = useState(true);
@@ -139,11 +138,7 @@ export const ExchangePage = () => {
   ];
 
   return (
-    <div className="main-content">
-      <TopBar title="Markets Escrow" />
-      
-      <div className="page-content">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 'var(--space-6)', height: 'calc(100vh - 120px)' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 'var(--space-6)' }}>
           
           {/* Left Column: Escrow Analytics */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -269,7 +264,7 @@ export const ExchangePage = () => {
             <div className="card" style={{ flex: 1, overflowY: 'auto' }}>
               <h2 className="panel-title" style={{ marginBottom: '16px' }}>Active Markets</h2>
 
-              {marketsError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>Could not reach the Integrity Oracle ({marketsError}).</div>}
+              {marketsError && <div style={{ color: 'var(--danger)', fontSize: '0.8rem', wordBreak: 'break-word' }}>Could not reach the Integrity Oracle ({marketsError}).</div>}
               {!marketsError && marketsLoading && <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Loading...</div>}
               {!marketsError && !marketsLoading && markets.length === 0 && (
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No markets deployed yet.</div>
@@ -305,8 +300,6 @@ export const ExchangePage = () => {
             </div>
           </div>
           
-        </div>
-      </div>
     </div>
   );
 };

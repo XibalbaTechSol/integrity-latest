@@ -107,7 +107,7 @@ export const TriMetricFunctions = () => (
                 icon={<Activity size={24} />}
                 accent="var(--primary)"
                 title="Entropy — Behavioral Stability"
-                formula={String.raw`S_{\text{entropy}}(v) = 1000 \cdot e^{-1.5v^2}`}
+                formula={"S_{\\text{entropy}}(v) = 1000 \\cdot e^{-1.5v^2}"}
                 data={entropyData}
                 xLabel="Performance variance (v)"
                 caption="A Gaussian decay: small variance barely moves the score, but instability compounds fast and saturates toward zero rather than going negative — a stable agent is rewarded disproportionately over an erratic one."
@@ -116,7 +116,7 @@ export const TriMetricFunctions = () => (
                 icon={<Users size={24} />}
                 accent="var(--gold)"
                 title="Grounding — Human Oversight"
-                formula={String.raw`S_{\text{grounding}}(h) = 1000 \cdot \text{clamp}(h, 0, 1)`}
+                formula={"S_{\\text{grounding}}(h) = 1000 \\cdot \\text{clamp}(h, 0, 1)"}
                 data={groundingData}
                 xLabel="Human-grounding fraction (h)"
                 caption="Directly proportional, by design — there's no principled nonlinearity here. An agent checked against human feedback 80% of the time scores exactly 800; no curve to game."
@@ -125,7 +125,7 @@ export const TriMetricFunctions = () => (
                 icon={<Cpu size={24} />}
                 accent="var(--success)"
                 title="Sacrifice — Verified Compute-Time"
-                formula={String.raw`S_{\text{sacrifice}}(t) = 1000 \cdot \min\!\left(\frac{\log_{10}(t+1)}{3},\ 1\right)`}
+                formula={"S_{\\text{sacrifice}}(t) = 1000 \\cdot \\min\\!\\left(\\frac{\\log_{10}(t+1)}{3},\\ 1\\right)"}
                 data={sacrificeData}
                 xLabel="Verified compute-hours elapsed (t)"
                 xTickFormatter={(v) => `${v}h`}

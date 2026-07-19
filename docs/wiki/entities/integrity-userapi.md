@@ -1,7 +1,7 @@
 ---
 title: integrity-userapi
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-07-15
 type: entity
 tags: [infrastructure, identity]
 confidence: high
@@ -10,11 +10,14 @@ source_files:
   - integrity-userapi/app/db.py
   - integrity-userapi/app/deps.py
   - integrity-userapi/app/security.py
+  - integrity-userapi/app/login_limiter.py
   - integrity-userapi/app/oracle_client.py
   - integrity-userapi/app/schemas.py
   - integrity-userapi/app/config.py
   - integrity-userapi/migrations/0001_init.sql
+  - integrity-userapi/migrations/0002_jwt_revocation.sql
   - integrity-userapi/tests/conftest.py
+  - integrity-mvp/demo/src/integrity_demo/userapi_bridge.py
   - docker-compose.yml
 ---
 
@@ -58,21 +61,62 @@ error="agent not found on oracle"` on a 404), or oracle unreachable
 caller always gets an honest state, never a silently-empty
 `live_data: null` standing in for "couldn't check."
 
-## Open gap, honestly scoped (not a bug)
+## Four gaps closed 2026-07-15 (all four of this package's `PRODUCTION_GAPS.md` §6 findings)
 
-No endpoint currently *authenticates* a request using a raw developer API
-key — `app/deps.py::get_current_user_id` only ever decodes a JWT bearer
-token. `api_keys.key_hash` is written and read back for
-management/listing/revocation, but nothing looks it up to gate a request
-yet. So "a revoked key can't be reused" isn't a testable regression today —
-there is no code path that uses a raw key at all. What *is* real and
-tested: create/list/revoke round-trip, a revoked or unknown key 404s on a
-second revoke, and one user can't revoke another's key.
+- **API keys now actually authenticate requests.** `app/deps.py::get_current_user_id`
+  accepts either a JWT bearer token *or* an `X-API-Key` header carrying a raw
+  `uak_...` key (sha256-hashed, looked up against `api_keys.key_hash WHERE
+  revoked_at IS NULL`) — the gap this section used to describe ("no code
+  path that uses a raw key at all") is closed. **Deliberate exception**:
+  minting (`POST /api-keys`) and revoking (`DELETE /api-keys/{id}`) a key
+  stay JWT-only (a new `get_current_token` dependency, not
+  `get_current_user_id`) — an API key that could mint further keys would
+  let one leaked long-lived credential outlive its own revocation.
+- **JWTs are now revocable.** `create_access_token` stamps a per-token `jti`
+  (uuid4); `decode_access_token` returns `DecodedToken(user_id, jti,
+  expires_at)`. New `migrations/0002_jwt_revocation.sql` adds
+  `revoked_tokens(jti PK, user_id, revoked_at, expires_at)`. New
+  `POST /auth/logout` inserts the presented token's `jti` there — and,
+  since it already has the transaction open, opportunistically sweeps
+  already-expired `revoked_tokens` rows first, so the table self-prunes
+  without a separate cron job (a revoked token whose `exp` has already
+  passed could never be replayed anyway).
+- **Login is now rate-limited.** New `app/login_limiter.py`
+  (`LoginRateLimiter`) mirrors `bcc_middleware/app/circuit_breaker.py`'s
+  in-memory per-key-counter-plus-timed-lockout shape (same accepted
+  single-process state tradeoff), keyed on the lowercased login email
+  rather than an agent DID, with deliberately looser defaults
+  (`failure_threshold=5`/`lockout=300s` vs. bcc's `3`/`900s`) since a login
+  form has a much higher legitimate-typo rate than a signed agent
+  commitment. `POST /auth/login` 429s (with a `Retry-After` header) once
+  tripped — even against the *correct* password.
+- **`demo_runs` has a real completion path.** New `PATCH /demo/runs/{id}`
+  (`DemoRunUpdateRequest`) lets the owning user transition their run
+  through `running` → `completed`/`failed`, stamping `finished_at` only on
+  a terminal status and storing a real `result_summary` JSONB payload
+  (asyncpg now round-trips `jsonb` as plain dicts everywhere via a codec
+  registered in `app/db.py::create_pool`, previously unregistered since
+  nothing had ever written non-null JSONB before this). New
+  `integrity-mvp/demo/src/integrity_demo/userapi_bridge.py` calls this
+  endpoint from the scenario engine itself — `main()` reports `running` at
+  start and `completed`/`failed` (with a real summary) at the end, entirely
+  opt-in via three env vars (`USERAPI_URL`/`USERAPI_TOKEN`/`USERAPI_RUN_ID`)
+  an operator sets when they want a specific `make demo` invocation tied
+  back to a `demo_runs` row created beforehand. **Still genuinely out of
+  scope, not fixed**: nothing in `integrity-mvp`'s dashboard UI creates a
+  `demo_runs` row or launches this CLI process — `make demo` remains an
+  operator-run script against live Base Sepolia using a funder private key,
+  not something the frontend can trigger yet.
 
 ## Tests and Postgres wiring
 
-**33 pytest tests, all against a real Postgres — never sqlite, never a
-mocked DB.** `docker-compose.yml` has a dedicated `userapi-postgres`
+**51 pytest tests** (up from 33 — the 2026-07-15 additions above), plus **6
+new tests** in `integrity-mvp/demo/tests/test_userapi_bridge.py` (against a
+real local `ThreadingHTTPServer`, same pattern as this package's own
+`_FakeOracleServer` — no-op when the three env vars are unset,
+bearer-vs-`X-API-Key` header selection, HTTP/connection errors swallowed
+not raised). All against a real Postgres — never sqlite, never a
+mocked DB. `docker-compose.yml` has a dedicated `userapi-postgres`
 service (`postgres:16-alpine`, `integrity`/`integrity_dev_only`, db
 `integrity_userapi`, host port **5435** — its own instance, deliberately
 never sharing integrity-oracle's `postgres` service on 5432 or its ad hoc
@@ -108,7 +152,7 @@ gap for the one browser caller this service exists to serve
 ([integrity-mvp](integrity-mvp.md)'s dashboard, a different origin by
 construction). Fixed with `CORSMiddleware` (`allow_origins=["*"]`,
 `allow_credentials=False` — every authenticated call carries a bearer JWT,
-never a cookie, so this is safe). Verified: all 33 pytest tests unaffected
+never a cookie, so this is safe). Verified: all 51 pytest tests unaffected
 (CORS is a browser-enforced concern, invisible server-side); a real
 cross-origin call from `integrity-mvp` now succeeds
 (`integrity-mvp/e2e/auth.spec.ts`, against a real `uvicorn` instance

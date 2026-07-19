@@ -15,6 +15,7 @@ import logging
 import secrets
 
 from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -42,8 +43,19 @@ class Settings(BaseSettings):
 
     # --- JWT auth ---
     jwt_secret: str = Field(default_factory=_generate_jwt_secret)
+    jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60 * 24  # 24h
+
+    @model_validator(mode="after")
+    def _warn_if_insecure_jwt_secret(self) -> "Settings":
+        if "jwt_secret" not in self.model_fields_set:
+            logger.warning(
+                "JWT_SECRET not provided in environment! "
+                "A random secret was generated. This is insecure for production as "
+                "restarts will invalidate all active sessions."
+            )
+        return self
 
     # --- API keys ---
     # Default AIS trust ceiling stamped onto every newly-issued developer API key.
@@ -54,8 +66,20 @@ class Settings(BaseSettings):
     # assumption, not something re-derived from a live source in this repo).
     default_api_key_trust_ceiling: int = 300
 
+    # --- Login rate-limiting (app/login_limiter.py) ---
+    # Same defaults as bcc_middleware's circuit_breaker for agent misbehavior
+    # (violation_threshold=3, lockout=900s) are deliberately NOT reused here --
+    # a login form has a much higher legitimate-typo rate than a signed agent
+    # commitment, so a stricter/shorter threshold would lock out real users
+    # over routine mistakes.
+    login_failure_threshold: int = 5
+    login_lockout_duration_seconds: int = 300
+
     # --- App ---
     app_name: str = "integrity-userapi"
+
+    # --- CORS ---
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5190"]
 
 
 settings = Settings()

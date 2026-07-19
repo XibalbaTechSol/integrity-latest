@@ -1,4 +1,4 @@
-.PHONY: setup chain up down test test-e2e sync-abis
+.PHONY: setup chain up down test test-e2e sync-abis demo
 
 setup:
 	cd contracts && npm install
@@ -11,7 +11,7 @@ setup:
 
 chain:
 	touch deployments.local.json
-	cd contracts && anvil &
+	cd contracts && anvil --host 0.0.0.0 &
 	sleep 2
 	cd contracts && FUNDER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
 
@@ -48,4 +48,20 @@ test:
 # docs/TESTING.md for the full test-pyramid rationale and what's covered.
 test-e2e:
 	cd integrity-mvp && npx playwright test
+
+# Runs integrity-mvp/demo's real 4-persona scenario engine (agent
+# registration + a live LLM-driven capital-allocation tool-call loop) --
+# was previously referenced by README/CLAUDE.md/docs/TESTING.md with no
+# actual Makefile target to back it. Against LIVE Base Sepolia by default
+# (whatever RPC_URL/CHAIN_ID/DEPLOYMENTS_FILE are set to, normally the root
+# .env's Base Sepolia values) -- real transactions, real gas. Needs
+# FUNDER_PRIVATE_KEY (funds each new agent wallet -- see FAUCET_INFO.md if
+# it's running low) and INTEGRITY_WALLET_PASSWORD (encrypts the generated
+# keystores) in the environment; the engine itself now checks the funder's
+# balance up front and fails clearly if it's short, rather than partially
+# registering agents and failing confusingly partway through.
+# To run against a local anvil instead: `make chain` first, then
+# `RPC_URL=http://localhost:8545 CHAIN_ID=31337 DEPLOYMENTS_FILE=../../deployments.local.json make demo`.
+demo:
+	cd integrity-mvp/demo && uv sync && uv run integrity-demo
 

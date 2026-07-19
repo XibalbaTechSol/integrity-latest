@@ -216,6 +216,51 @@ def derive_compliance(
     return self_reported
 
 
+# Decimal places every derived signal is quantized to before it is signed.
+#
+# This is a CORRECTNESS requirement of the signature scheme, not cosmetic
+# rounding (FIXED 2026-07-17 — was silently rejecting ~20% of real, correctly
+# signed telemetry with a 400).
+#
+# `client.flush_telemetry` signs the canonical JSON of a payload containing
+# these floats, and integrity-oracle re-serializes the same payload with
+# Rust's `serde_json` to check that signature. Both sides emit the "shortest
+# string that round-trips back to this exact f64" — but when a float has TWO
+# equally-short round-tripping representations, Python's repr (David Gay) and
+# Rust's ryu are each free to pick a different one. Nothing is wrong with
+# either; they simply disagree, the canonical bytes differ, and Ed25519
+# verification fails on a payload that was signed perfectly correctly.
+#
+# Confirmed against the live oracle, not theorised: a real derived entropy of
+# 0.011890908425879365 failed every time while 0.009712883245855508 passed,
+# and in Python BOTH "0.011890908425879365" and "0.011890908425879366"
+# round-trip to that identical f64 (hex 0x1.85a42b6789780p-7) — the exact
+# two-candidate ambiguity above. The oracle's error surfaced as a confusing
+# "eip191 verification error: signature must be 65 bytes, got 64", which is a
+# downstream red herring: `crypto::verify_agent_signature` tries Ed25519
+# first, gets `false` (not an error), and falls through to the EIP-191 branch,
+# which then chokes on a 64-byte Ed25519 signature.
+#
+# The ambiguity is a ~17-significant-digit phenomenon; at 6 decimal places the
+# shortest round-tripping representation is unique, so both languages
+# necessarily agree. 6dp is also far more precision than these heuristics
+# justify (see each derive_* docstring — they are first-pass client-side
+# estimates the oracle independently recomputes anyway), so nothing of value
+# is lost by quantizing.
+#
+# NOTE (real remaining gap, deliberately not papered over): this only fixes the
+# floats the SDK itself generates. A caller passing an arbitrary float through
+# `log_telemetry(metadata=...)` can still land on an ambiguous value and hit
+# the same rejection, since that value is signed verbatim inside `otel_spans`.
+# The general fix is a shared canonicalization standard with a fully specified
+# number format on both sides -- RFC 8785 (JCS) mandates ECMAScript's
+# Number::toString, which is deterministic -- rather than each language's own
+# shortest-repr. Flagged in PRODUCTION_GAPS.md rather than silently assumed
+# away, same as bcc.py's own canonicalization docstring does for a related
+# non-ASCII concern.
+_SIGNAL_DECIMALS = 6
+
+
 def derive_ais_signals(
     batch: List[Dict[str, Any]],
     *,
@@ -225,15 +270,23 @@ def derive_ais_signals(
 ) -> Dict[str, float]:
     """Bundles all four derived signals into the shape
     `POST /v1/telemetry/ingest`'s `derived_signals` field expects (see
-    docs/INTERFACE_CONTRACT.md)."""
+    docs/INTERFACE_CONTRACT.md).
+
+    Every value is quantized to `_SIGNAL_DECIMALS` decimal places — see that
+    constant's comment for why this is load-bearing for signature
+    verification and not a cosmetic choice.
+    """
     return {
-        "entropy": derive_entropy(batch),
-        "grounding": derive_grounding(batch),
-        "sacrifice": derive_sacrifice(batch),
-        "compliance": derive_compliance(
-            batch,
-            compliance_gate_address=compliance_gate_address,
-            covered_entity_address=covered_entity_address,
-            w3=w3,
+        "entropy": round(derive_entropy(batch), _SIGNAL_DECIMALS),
+        "grounding": round(derive_grounding(batch), _SIGNAL_DECIMALS),
+        "sacrifice": round(derive_sacrifice(batch), _SIGNAL_DECIMALS),
+        "compliance": round(
+            derive_compliance(
+                batch,
+                compliance_gate_address=compliance_gate_address,
+                covered_entity_address=covered_entity_address,
+                w3=w3,
+            ),
+            _SIGNAL_DECIMALS,
         ),
     }
