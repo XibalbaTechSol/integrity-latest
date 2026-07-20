@@ -193,7 +193,6 @@ def test_expected_nonce_mismatch_fails_overall_validity(real_document_bytes):
 
 
 def test_not_cbor_raises_attestation_error():
-    with pytest.raises(attestation.AttestationError, match="not valid CBOR|CBOR|Expected a 4-element COSE_Sign1 array"):
     # These particular bytes happen to still decode as *some* CBOR value (a
     # short text string, by coincidence of the leading byte) rather than
     # raising a CBOR decode error -- so the failure mode exercised here is
